@@ -1,5 +1,7 @@
 #include "turn.h"
+#include "log.h"
 #include "net_data.h"
+
 #include <assert.h>
 #include <stdio.h>
 
@@ -32,7 +34,7 @@ bool do_turn(const struct turn *turn, struct game_context *ctx)
 	success = process_turn_response(response);
 
 	if (success)
-		++ctx->time.game_turn;
+		++(ctx->time.game_turn);
 	return success;
 }
 
@@ -45,7 +47,7 @@ bool process_turn_response(const char *response)
 
 void free_turn(struct turn *turn)
 {
-	if (turn.type == TURN_TESTMALLOC) {
+	if (turn->type == TURN_TESTMALLOC) {
 		// free(); // for heap turns, their proper destructor
 		// more else if's for other specific turns...
 	} else {

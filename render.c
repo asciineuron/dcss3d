@@ -1,9 +1,6 @@
 #include "render.h"
 #include "log.h"
 
-// TODO: add cglm/include to include path
-#include "cglm/cglm.h"
-
 #include <limits.h>
 #include <math.h>
 #include <SDL3/SDL.h>
@@ -17,7 +14,7 @@
 #define WIN_W 1920
 #define WIN_H 1080
 
-const char shader_path[] = "/Volumes/Ext/Code/3dcss";
+const char shader_path[] = "/Volumes/Ext/Code/dcss3d/shaders";
 
 struct render_context {
 	struct render_info *rend_info;
@@ -73,12 +70,12 @@ void print_model(const struct model *m)
 	log_trace("printing model %s", m->name);
 	log_trace("vertices:");
 	for (int i = 0; i < m->vertex_count; i++) {
-		log_trace("(%f %f %f) ", m->vertices[i].x, m->vertices[i].y,
-			  m->vertices[i].z);
+		log_trace("(%f %f %f) ", m->vertices[i][0], m->vertices[i][1],
+			  m->vertices[i][2]);
 	}
 	log_trace("uvs:");
 	for (int i = 0; i < m->uv_count; i++) {
-		log_trace("(%f %f) ", m->uvs[i].u, m->uvs[i].v);
+		log_trace("(%f %f) ", m->uvs[i][0], m->uvs[i][1]);
 	}
 	log_trace("face vertices:");
 	for (int i = 0; i < m->face_count; i++) {
@@ -382,7 +379,8 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 	// for (int i = 0; i < model->vertex_count; ++i) {
 	// 	vertex_trans[i] = model->vertices[i];
 	// }
-	memcpy();
+	memcpy(vertex_trans, model->vertices,
+	       model->vertex_count * sizeof(vec3));
 
 	// or memcpy
 	Uint16 *index_trans = (Uint16 *)&vertex_trans[model->vertex_count];
@@ -446,7 +444,7 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 
 bool render_init()
 {
-	rend_ctx = { .rend_info = &rend_info };
+	rend_ctx = (struct render_context){ .rend_info = &rend_info, 0 };
 
 	// create window:
 	// 200% for retina TODO: is this needed for w, h in CreateWindow,
@@ -581,29 +579,26 @@ bool render_init()
 	return true;
 }
 
-static glm::mat4 camera_to_viewproj(const struct camera *cam)
+static void camera_to_viewproj(const struct camera *cam, mat4 dest)
 {
-	// glm::mat4 view = glm::translate(glm::mat4(1.0f),
-	// 				glm::vec3(-cam->x, -cam->z, cam->y));
-	// glm::mat4 theta_rot = glm::rotate(glm::mat4(1.0f),
-	// 				  (float)(M_PI / 2.) - cam->theta,
-	// 				  glm::vec3(0.0f, 1.0f, 0.0f));
-	// view = theta_rot * view;
-
 	float cos_phi = cos(cam->phi);
-	glm::vec3 lookdir = glm::vec3((float)cos(-cam->theta) * cos_phi,
-				      (float)sin(cam->phi),
-				      (float)sin(-cam->theta) * cos_phi);
-	lookdir = glm::normalize(lookdir);
+	vec3 lookdir = { (float)cos(-cam->theta) * cos_phi,
+			 (float)sin(cam->phi),
+			 (float)sin(-cam->theta) * cos_phi };
+	glm_vec3_normalize(lookdir);
 
-	glm::vec3 pos = glm::vec3(cam->x, cam->z, -cam->y);
-	glm::mat4 lookat =
-		glm::lookAt(pos, pos + lookdir, glm::vec3(0.0f, 1.0f, 0.0f));
+	// TODO: flip y definition instead
+	// ^ did this
+	vec3 direction;
+	glm_vec3_add(cam->pos, lookdir, direction);
+	mat4 lookat;
+	glm_look(cam->pos, direction, (vec3){ 0.0f, 1.0f, 0.0f }, lookat);
 
-	glm::mat4 projection =
-		glm::perspective(cam->fov, cam->aspect_ratio, 0.1f, 100.0f);
+	mat4 projection;
+	// glm_perspective(cam->fov, cam->aspect_ratio, 0.1f, 100.0f, projection);
+	glm_perspective_default(cam->aspect_ratio, projection);
 
-	return projection * lookat;
+	glm_mat4_mul(projection, lookat, dest);
 }
 
 bool render_draw(const struct game_context *game_ctx)
@@ -651,12 +646,12 @@ bool render_draw(const struct game_context *game_ctx)
 		// 	glm::mat4(1.0f), SDL_sinf((milliseconds / 1000.0f)),
 		// 	glm::vec3(0.5f, 0.2f, 0.1f));
 
-		glm::mat4 camera_transform =
-			camera_to_viewproj(&(game_ctx->player->camera));
+		mat4 camera_transform;
+		camera_to_viewproj(&(game_ctx->player->camera),
+				   camera_transform);
 
-		SDL_PushGPUVertexUniformData(cmd_buf, 0,
-					     glm::value_ptr(camera_transform),
-					     sizeof(glm::mat4));
+		SDL_PushGPUVertexUniformData(cmd_buf, 0, camera_transform,
+					     sizeof(mat4));
 
 		// TODO: update here many copies based on visible map, and push relevant gpu data
 		SDL_DrawGPUIndexedPrimitivesIndirect(rend_pass,

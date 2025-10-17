@@ -59,7 +59,7 @@ bool net_data_init(void)
 		return false;
 	}
 
-	fds[0] = { .fd = sock_fd, .events = POLLIN };
+	fds[0] = (struct pollfd){ .fd = sock_fd, .events = POLLIN };
 
 	return true;
 }

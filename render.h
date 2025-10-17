@@ -1,13 +1,15 @@
 #ifndef RENDER_H
 #define RENDER_H
 
+#include <stdbool.h>
+
+// TODO: add cglm/include to include path
+#include "cglm/include/cglm/cglm.h"
 #include <SDL3/SDL.h>
 
 // these x, y have to be different
 struct camera {
-	float x;
-	float y;
-	float z;
+	vec3 pos; // x,y,z
 	float fov;
 	float aspect_ratio;
 	float theta;
@@ -55,8 +57,9 @@ struct time {
 // DCSS defaults to 15x15 square LOS for most species, use for now
 #define MAX_MAP_VISIBLE 225
 
+// TODO move game context out of render.h
 struct game_context {
-	struct map_pos_info[MAX_MAP_VISIBLE] visible_map;
+	struct map_pos_info visible_map[MAX_MAP_VISIBLE];
 	struct player *player;
 	struct time time;
 };

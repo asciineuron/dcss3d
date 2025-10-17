@@ -3,6 +3,8 @@
 
 #include "turn.h"
 
+#include <stdbool.h>
+
 extern char *cur_msg;
 extern int msg_idx;
 

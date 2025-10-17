@@ -1,13 +1,13 @@
 #include "log.h"
 #include "render.h"
+#include "turn.h"
 
 #include <math.h>
+#include <stdbool.h>
 #include <stdlib.h>
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
-
-// TODO: do C port, then remove ugly unnecessary casting eg (enum frame_keys)
 
 // import glm later
 #define FOV_RAD 0.785398
@@ -16,17 +16,17 @@
 #define ASPECT 1.777777
 
 // aspect ratio may warrant unequal x and y sensitivities
-#define MOUSE_SENSITIVITY_X 0.01
-#define MOUSE_SENSITIVITY_Y 0.01
+#define MOUSE_SENSITIVITY_X 0.002
+#define MOUSE_SENSITIVITY_Y 0.002
 #define VELOCITY 0.8
 
 bool done = false;
 
 // handle current state of logical keyboard (infrequent at key-poll rate, not per-frame)
-struct turn process_key(SDL_KeyboardEvent *key_event,
-			struct game_context *game_ctx)
+struct turn *process_key(SDL_KeyboardEvent *key_event,
+			 struct game_context *game_ctx)
 {
-	struct turn turn = { .type = TURN_NONE };
+	struct turn *turn = NULL;
 	if (key_event->type == SDL_EVENT_KEY_UP) {
 		// TODO: add shift?
 		enum frame_keys off_keys = FRAME_KEY_NONE;
@@ -113,14 +113,13 @@ void process_frame_input(struct game_context *game_ctx)
 	float mouse_dx, mouse_dy;
 	SDL_MouseButtonFlags mouse_state =
 		SDL_GetRelativeMouseState(&mouse_dx, &mouse_dy);
-	game_ctx->player->camera.theta -= (mouse_dx * MOUSE_SENSITIVITY_X);
-	game_ctx->player->camera.phi -= (mouse_dy * MOUSE_SENSITIVITY_Y);
+	struct camera *cam = &(game_ctx->player->camera);
+	cam->theta -= (mouse_dx * MOUSE_SENSITIVITY_X);
+	cam->phi -= (mouse_dy * MOUSE_SENSITIVITY_Y);
 
 	// wraparound into [0, 2pi] range:
-	game_ctx->player->camera.theta =
-		wrap(game_ctx->player->camera.theta, 0, 2 * M_PI);
-	game_ctx->player->camera.phi =
-		wrap(game_ctx->player->camera.phi, 0, 2 * M_PI);
+	cam->theta = wrap(cam->theta, 0, 2 * M_PI);
+	cam->phi = wrap(cam->phi, 0, 2 * M_PI);
 }
 
 struct turn *process_event(SDL_Event *event, struct game_context *game_ctx)
@@ -161,6 +160,11 @@ bool crossed_tile()
 	return false;
 }
 
+const static struct map_pos_info dummy_visible_map[MAX_MAP_VISIBLE] = {
+	{ { 1, 1 }, MTYPE_FLOOR },
+	{ { 1, 2 }, MTYPE_FLOOR }
+};
+
 struct turn *update_world(struct game_context *game_ctx)
 {
 	struct turn *turn = NULL;
@@ -173,19 +177,20 @@ struct turn *update_world(struct game_context *game_ctx)
 	float vx = game_ctx->player->vel_x;
 	double dx = vy * cos(cam->theta) + vx * cos(M_PI_2 - cam->theta);
 	double dy = -vy * cos(M_PI_2 - cam->theta) + vx * cos(cam->theta);
-	cam->x += game_ctx->time.dt * dx;
-	cam->y -= game_ctx->time.dt * dy;
+	cam->pos[0] += game_ctx->time.dt * dx;
+	cam->pos[1] += game_ctx->time.dt * dy;
 
 	// check if tile bounds crossed, if so take turn
-	enum move_direction move = if (crossed_tile())
-	{
+	if (crossed_tile()) {
 		turn = malloc(sizeof(struct turn));
-		*turn = { .type = TURN_MOVE, .value.move = MOVE_N };
+		*turn = (struct turn){ .type = TURN_MOVE,
+				       .value.move = MOVE_N };
 	}
 
 	// update map
 	// demo
-	game_ctx->visible_map = { { { 1, 1 }, { 1, 2 } } };
+	memcpy(game_ctx->visible_map, dummy_visible_map,
+	       MAX_MAP_VISIBLE * sizeof(struct map_pos_info));
 
 	return turn;
 }
@@ -199,10 +204,8 @@ int main(int argc, char *argv[])
 {
 	log_init();
 
-	struct player player{ {
-				      .x = 0,
-				      .y = 0,
-				      .z = 0,
+	struct player player = { .camera = {
+				      .pos = GLM_VEC3_ZERO_INIT,
 				      .fov = FOV_RAD,
 				      .aspect_ratio = ASPECT,
 				      .theta = 0,
@@ -212,7 +215,7 @@ int main(int argc, char *argv[])
 			      .vel_y = 0.,
 			      .keystate = {} };
 
-	struct game_context game_ctx = { &player, {}, { 0, 0, 0 } };
+	struct game_context game_ctx = { {}, &player, { 0, 0, 0 } };
 
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		log_err("SDL_Init failure: %s", SDL_GetError());
