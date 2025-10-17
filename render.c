@@ -589,10 +589,10 @@ static void camera_to_viewproj(const struct camera *cam, mat4 dest)
 
 	// TODO: flip y definition instead
 	// ^ did this
-	vec3 direction;
-	glm_vec3_add(cam->pos, lookdir, direction);
+	vec3 center;
+	glm_vec3_add(cam->pos, lookdir, center);
 	mat4 lookat;
-	glm_look(cam->pos, direction, (vec3){ 0.0f, 1.0f, 0.0f }, lookat);
+	glm_lookat(cam->pos, center, (vec3){ 0.0f, 1.0f, 0.0f }, lookat);
 
 	mat4 projection;
 	// glm_perspective(cam->fov, cam->aspect_ratio, 0.1f, 100.0f, projection);

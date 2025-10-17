@@ -16,8 +16,8 @@
 #define ASPECT 1.777777
 
 // aspect ratio may warrant unequal x and y sensitivities
-#define MOUSE_SENSITIVITY_X 0.002
-#define MOUSE_SENSITIVITY_Y 0.002
+#define MOUSE_SENSITIVITY_X 0.005
+#define MOUSE_SENSITIVITY_Y 0.005
 #define VELOCITY 0.8
 
 bool done = false;
@@ -178,7 +178,7 @@ struct turn *update_world(struct game_context *game_ctx)
 	double dx = vy * cos(cam->theta) + vx * cos(M_PI_2 - cam->theta);
 	double dy = -vy * cos(M_PI_2 - cam->theta) + vx * cos(cam->theta);
 	cam->pos[0] += game_ctx->time.dt * dx;
-	cam->pos[1] += game_ctx->time.dt * dy;
+	cam->pos[2] += game_ctx->time.dt * dy;
 
 	// check if tile bounds crossed, if so take turn
 	if (crossed_tile()) {
