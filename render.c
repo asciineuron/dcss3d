@@ -601,6 +601,13 @@ static void camera_to_viewproj(const struct camera *cam, mat4 dest)
 	glm_mat4_mul(projection, lookat, dest);
 }
 
+bool push_gpu_map_data(void)
+{
+	// read in list of map data, push to gpu buffer as coords
+	
+	return true;
+}
+
 bool render_draw(const struct game_context *game_ctx)
 {
 	// if (in_menu) {
@@ -654,6 +661,10 @@ bool render_draw(const struct game_context *game_ctx)
 					     sizeof(mat4));
 
 		// TODO: update here many copies based on visible map, and push relevant gpu data
+		if (!push_gpu_map_data()) {
+			log_err("push_gpu_map_data failed");
+		}
+
 		SDL_DrawGPUIndexedPrimitivesIndirect(rend_pass,
 						     rend_ctx.draw_buf, 0, 1);
 
