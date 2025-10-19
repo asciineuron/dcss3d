@@ -14,7 +14,8 @@
 #define WIN_W 1920
 #define WIN_H 1080
 
-const char shader_path[] = "/Volumes/Ext/Code/dcss3d/shaders";
+char shader_path[PATH_MAX];
+char resource_path[PATH_MAX];
 
 struct render_context {
 	struct render_info *rend_info;
@@ -117,6 +118,14 @@ static char *load_file(const char *file, size_t *size)
 	return filebuf;
 }
 
+static char *load_asset(const char *file, size_t *size)
+{
+	char full_asset_path[PATH_MAX];
+	snprintf(full_asset_path, PATH_MAX, "%s/%s", resource_path, file);
+	log_trace("loading asset: %s", full_asset_path);
+	return load_file(full_asset_path, size);
+}
+
 // load full buffer
 // readline with strchr('\n')
 // find first word in line, use small word buffer, categorize as {#, v, vt, vn, vp, f, l}
@@ -125,7 +134,7 @@ static char *load_file(const char *file, size_t *size)
 static struct model *load_obj(const char *file)
 {
 	size_t fsize;
-	char *filebuf = load_file(file, &fsize);
+	char *filebuf = load_asset(file, &fsize);
 
 	struct model *model = calloc(1, sizeof(struct model));
 
@@ -444,6 +453,14 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 
 bool render_init()
 {
+	// set up resource+shader dirs
+	log_trace("using base dir: %s", SDL_GetBasePath());
+	snprintf(resource_path, PATH_MAX, "%s%s", SDL_GetBasePath(),
+		 "resources");
+	snprintf(shader_path, PATH_MAX, "%s%s", SDL_GetBasePath(), "shaders");
+	log_trace("using resource dir: %s", resource_path);
+	log_trace("using shader dir: %s", shader_path);
+
 	rend_ctx = (struct render_context){ .rend_info = &rend_info, 0 };
 
 	// create window:
@@ -560,7 +577,7 @@ bool render_init()
 	SDL_ReleaseGPUShader(rend_ctx.gpu_dev, frag_shader);
 
 	// load vertex/index data:
-	struct model *model = load_obj("/Volumes/Ext/Create/monkey.obj");
+	struct model *model = load_obj("monkey.obj");
 
 	// struct vec3 square_v[4] = {
 	// 	{ -1, -1, 0 }, { 1, -1, 0 }, { 1, 1, 0 }, { -1, 1, 0 }
@@ -604,7 +621,7 @@ static void camera_to_viewproj(const struct camera *cam, mat4 dest)
 bool push_gpu_map_data(void)
 {
 	// read in list of map data, push to gpu buffer as coords
-	
+
 	return true;
 }
 
