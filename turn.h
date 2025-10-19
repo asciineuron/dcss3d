@@ -1,8 +1,7 @@
 #ifndef TURN_H
 #define TURN_H
 
-// TODO move game context out of render.h
-#include "render.h"
+struct game_context;
 
 #include <stdbool.h>
 

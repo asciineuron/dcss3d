@@ -1,3 +1,4 @@
+#include "game.h"
 #include "log.h"
 #include "render.h"
 #include "turn.h"
@@ -9,15 +10,6 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
-// import glm later
-#define FOV_RAD 0.785398
-// TODO for mouse fix for x vs y?
-#define FOV_DEG 45
-#define ASPECT 1.777777
-
-// aspect ratio may warrant unequal x and y sensitivities
-#define MOUSE_SENSITIVITY_X 0.005
-#define MOUSE_SENSITIVITY_Y 0.005
 #define VELOCITY 0.8
 
 bool done = false;
@@ -81,13 +73,6 @@ struct turn *process_key(SDL_KeyboardEvent *key_event,
 	return turn;
 }
 
-static float wrap(float x, float min, float max)
-{
-	if (min > max)
-		return wrap(x, max, min);
-	return (x >= 0 ? min : max) + fmod(x, max - min);
-}
-
 // update state for this frame based on keyboard, mouse input
 void process_frame_input(struct game_context *game_ctx)
 {
@@ -113,13 +98,7 @@ void process_frame_input(struct game_context *game_ctx)
 	float mouse_dx, mouse_dy;
 	SDL_MouseButtonFlags mouse_state =
 		SDL_GetRelativeMouseState(&mouse_dx, &mouse_dy);
-	struct camera *cam = &(game_ctx->player->camera);
-	cam->theta -= (mouse_dx * MOUSE_SENSITIVITY_X);
-	cam->phi -= (mouse_dy * MOUSE_SENSITIVITY_Y);
-
-	// wraparound into [0, 2pi] range:
-	cam->theta = wrap(cam->theta, 0, 2 * M_PI);
-	cam->phi = wrap(cam->phi, 0, 2 * M_PI);
+	camera_update_from_mouse(mouse_dx, mouse_dy);
 }
 
 struct turn *process_event(SDL_Event *event, struct game_context *game_ctx)
@@ -172,13 +151,8 @@ struct turn *update_world(struct game_context *game_ctx)
 	process_frame_input(game_ctx);
 
 	// update camera and move relative the pointed direction
-	struct camera *cam = &(game_ctx->player->camera);
-	float vy = game_ctx->player->vel_y;
-	float vx = game_ctx->player->vel_x;
-	double dx = vy * cos(cam->theta) + vx * cos(M_PI_2 - cam->theta);
-	double dy = -vy * cos(M_PI_2 - cam->theta) + vx * cos(cam->theta);
-	cam->pos[0] += game_ctx->time.dt * dx;
-	cam->pos[2] += game_ctx->time.dt * dy;
+	camera_update_pos(game_ctx->time.dt, game_ctx->player->vel_x,
+			  game_ctx->player->vel_y);
 
 	// check if tile bounds crossed, if so take turn
 	if (crossed_tile()) {
@@ -195,25 +169,11 @@ struct turn *update_world(struct game_context *game_ctx)
 	return turn;
 }
 
-float cam_y()
-{
-	return FOV_DEG;
-}
-
 int main(int argc, char *argv[])
 {
 	log_init();
 
-	struct player player = { .camera = {
-				      .pos = GLM_VEC3_ZERO_INIT,
-				      .fov = FOV_RAD,
-				      .aspect_ratio = ASPECT,
-				      .theta = 0,
-				      .phi = 0,
-			      },
-			      .vel_x = 0.,
-			      .vel_y = 0.,
-			      .keystate = {} };
+	struct player player = { .vel_x = 0., .vel_y = 0., .keystate = FRAME_KEY_NONE };
 
 	struct game_context game_ctx = { {}, &player, { 0, 0, 0 } };
 

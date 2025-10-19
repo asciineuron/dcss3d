@@ -3,7 +3,7 @@ project(dcss3d C)
 
 add_executable(dcss3d)
 
-target_sources(dcss3d PRIVATE turn.c render.c net_data.c log.c main.c)
+target_sources(dcss3d PRIVATE turn.c render.c net_data.c log.c game.c main.c)
 
 set(CMAKE_BUILD_TYPE Debug)
 
@@ -14,7 +14,7 @@ target_include_directories(dcss3d PRIVATE ${PROJECT_SOURCE_DIR}/cglm)
 
 find_library(MATH_LIB m)
 if (MATH_LIB)
-	target_link_libraries(dcss3d PRIVATE m)
+	target_link_libraries(dcss3d PRIVATE ${MATH_LIB})
 endif()
 
 file(COPY ${PROJECT_SOURCE_DIR}/resources DESTINATION ${CMAKE_BINARY_DIR})

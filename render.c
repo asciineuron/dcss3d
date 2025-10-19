@@ -14,10 +14,36 @@
 #define WIN_W 1920
 #define WIN_H 1080
 
+// aspect ratio may warrant unequal x and y sensitivities
+#define MOUSE_SENSITIVITY_X 0.005
+#define MOUSE_SENSITIVITY_Y 0.005
+
+#define FOV_RAD 0.785398
+// TODO for mouse fix for x vs y?
+#define FOV_DEG 45
+#define ASPECT 1.777777
+
 char shader_path[PATH_MAX];
 char resource_path[PATH_MAX];
 
+static const vec4 map_type_color[MTYPE_COUNT] = {
+	[MTYPE_WALL] = { 1.0f, 0.0f, 0.0f, 1.0f },
+	[MTYPE_FLOOR] = { 0.0f, 1.0f, 0.0f, 1.0f },
+	[MTYPE_UNKNOWN] = { 0.0f, 0.0f, 1.0f, 1.0f },
+};
+
+// these x, y have to be different
+struct camera {
+	vec3 pos; // x,y,z
+	float fov;
+	float aspect_ratio;
+	float theta;
+	float phi;
+};
+
 struct render_context {
+	struct camera camera;
+
 	struct render_info *rend_info;
 	SDL_GPUDevice *gpu_dev;
 	SDL_GPUGraphicsPipeline *pipeline;
@@ -118,14 +144,6 @@ static char *load_file(const char *file, size_t *size)
 	return filebuf;
 }
 
-static char *load_asset(const char *file, size_t *size)
-{
-	char full_asset_path[PATH_MAX];
-	snprintf(full_asset_path, PATH_MAX, "%s/%s", resource_path, file);
-	log_trace("loading asset: %s", full_asset_path);
-	return load_file(full_asset_path, size);
-}
-
 // load full buffer
 // readline with strchr('\n')
 // find first word in line, use small word buffer, categorize as {#, v, vt, vn, vp, f, l}
@@ -133,8 +151,10 @@ static char *load_asset(const char *file, size_t *size)
 // re-read, parse into data structures
 static struct model *load_obj(const char *file)
 {
+	char full_file[PATH_MAX];
+	snprintf(full_file, PATH_MAX, "%s/%s", resource_path, file);
 	size_t fsize;
-	char *filebuf = load_asset(file, &fsize);
+	char *filebuf = load_file(full_file, &fsize);
 
 	struct model *model = calloc(1, sizeof(struct model));
 
@@ -461,7 +481,17 @@ bool render_init()
 	log_trace("using resource dir: %s", resource_path);
 	log_trace("using shader dir: %s", shader_path);
 
-	rend_ctx = (struct render_context){ .rend_info = &rend_info, 0 };
+	rend_ctx = (struct render_context) { 
+		.camera = { 
+			.pos = GLM_VEC3_ZERO_INIT,
+			.fov = FOV_RAD,
+			.aspect_ratio = ASPECT,
+			.theta = 0,
+			.phi = 0,
+		},
+		.rend_info = &rend_info, 
+		0 
+	};
 
 	// create window:
 	// 200% for retina TODO: is this needed for w, h in CreateWindow,
@@ -618,8 +648,9 @@ static void camera_to_viewproj(const struct camera *cam, mat4 dest)
 	glm_mat4_mul(projection, lookat, dest);
 }
 
-bool push_gpu_map_data(void)
+bool push_gpu_map_data(struct map_pos_info *visible_map)
 {
+	// TODO pass in *visible_map size?
 	// read in list of map data, push to gpu buffer as coords
 
 	return true;
@@ -671,14 +702,13 @@ bool render_draw(const struct game_context *game_ctx)
 		// 	glm::vec3(0.5f, 0.2f, 0.1f));
 
 		mat4 camera_transform;
-		camera_to_viewproj(&(game_ctx->player->camera),
-				   camera_transform);
+		camera_to_viewproj(&(rend_ctx.camera), camera_transform);
 
 		SDL_PushGPUVertexUniformData(cmd_buf, 0, camera_transform,
 					     sizeof(mat4));
 
 		// TODO: update here many copies based on visible map, and push relevant gpu data
-		if (!push_gpu_map_data()) {
+		if (!push_gpu_map_data(game_ctx->visible_map)) {
 			log_err("push_gpu_map_data failed");
 		}
 
@@ -698,4 +728,31 @@ void render_quit()
 				       rend_ctx.rend_info->window);
 	SDL_DestroyGPUDevice(rend_ctx.gpu_dev);
 	SDL_DestroyWindow(rend_ctx.rend_info->window);
+}
+
+static float wrap(float x, float min, float max)
+{
+	if (min > max)
+		return wrap(x, max, min);
+	return (x >= 0 ? min : max) + fmod(x, max - min);
+}
+
+void camera_update_from_mouse(float mouse_dx, float mouse_dy)
+{
+	rend_ctx.camera.theta -= (mouse_dx * MOUSE_SENSITIVITY_X);
+	rend_ctx.camera.phi -= (mouse_dy * MOUSE_SENSITIVITY_Y);
+
+	// wraparound into [0, 2pi] range:
+	rend_ctx.camera.theta = wrap(rend_ctx.camera.theta, 0, 2 * M_PI);
+	rend_ctx.camera.phi = wrap(rend_ctx.camera.phi, 0, 2 * M_PI);
+}
+
+void camera_update_pos(double dt, float vx, float vy)
+{
+	float dx = vy * cos(rend_ctx.camera.theta) +
+		    vx * cos(M_PI_2 - rend_ctx.camera.theta);
+	float dy = -vy * cos(M_PI_2 - rend_ctx.camera.theta) +
+		    vx * cos(rend_ctx.camera.theta);
+	rend_ctx.camera.pos[0] += dt * dx;
+	rend_ctx.camera.pos[2] += dt * dy;
 }

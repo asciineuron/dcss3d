@@ -1,4 +1,5 @@
 #include "turn.h"
+#include "game.h"
 #include "log.h"
 #include "net_data.h"
 
