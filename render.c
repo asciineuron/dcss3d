@@ -32,7 +32,6 @@ static const vec4 map_type_color[MTYPE_COUNT] = {
 	[MTYPE_UNKNOWN] = { 0.0f, 0.0f, 1.0f, 1.0f },
 };
 
-// these x, y have to be different
 struct camera {
 	vec3 pos; // x,y,z
 	float fov;
@@ -52,6 +51,7 @@ struct render_context {
 	SDL_GPUBuffer *vertex_buf;
 	SDL_GPUBuffer *index_buf;
 	SDL_GPUBuffer *draw_buf;
+	SDL_GPUBuffer *map_data_buf;
 };
 
 struct render_info rend_info;
@@ -63,11 +63,10 @@ struct face {
 	Uint16 t_idx[3];
 };
 
-enum model_features {
-	M_FEAT_NONE = 0,
-	M_FEAT_VERTEX = 1 << 1,
-	M_FEAT_UV = 1 << 2,
-	M_FEAT_INDEX = 1 << 3
+enum model_type {
+	MODEL_ACTOR, // default
+	MODEL_MAP,
+	MODEL_COUNT
 };
 
 struct model {
@@ -78,7 +77,7 @@ struct model {
 	size_t uv_count;
 	size_t face_count;
 	char *name;
-	enum model_features features;
+	enum model_type type;
 };
 
 static void free_model(struct model *m)
@@ -113,10 +112,10 @@ void print_model(const struct model *m)
 
 static char *load_file(const char *file, size_t *size)
 {
-	*size = 0;
 	if (!file || !size) {
 		return NULL;
 	}
+	*size = 0;
 	FILE *fp = fopen(file, "r");
 	if (!fp) {
 		log_err("fopen error for %s", file);
@@ -165,7 +164,7 @@ static struct model *load_obj(const char *file)
 
 	char *line = filebuf;
 	int matched_vals = 0;
-	// {#, v, vt, vn, vp, f, l} + '\0'
+	// typeword in: {#, v, vt, vn, vp, f, l} + '\0'
 	char typeword[3] = { 0 };
 	do {
 		matched_vals = sscanf(line, "%2s", typeword);
@@ -262,9 +261,9 @@ static struct model *load_obj(const char *file)
 			}
 
 			// switch to 0-based indexing
-			--model->faces[cur_f].v_idx[0];
-			--model->faces[cur_f].v_idx[1];
-			--model->faces[cur_f].v_idx[2];
+			--(model->faces[cur_f].v_idx[0]);
+			--(model->faces[cur_f].v_idx[1]);
+			--(model->faces[cur_f].v_idx[2]);
 
 			++cur_f;
 			// } else if (strcmp(typeword, "vn") == 0) {
@@ -370,26 +369,28 @@ static SDL_GPUShader *load_shader(SDL_GPUDevice *device, const char *filename,
 
 static bool upload_model(struct render_context *ctx, const struct model *model)
 {
-	log_trace("model upload started");
 	// TODO: use model feature flags, or determine if size=0 to skip parts
+	log_trace("model upload started");
+
 	const Uint32 vertex_buf_size = sizeof(vec3) * model->vertex_count;
-	log_trace("vertices %d and size %lu", model->vertex_count,
-		  vertex_buf_size);
 	ctx->vertex_buf = SDL_CreateGPUBuffer(
 		ctx->gpu_dev,
 		&(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
 					    .size = vertex_buf_size });
+	log_trace("vertices %d and size %lu", model->vertex_count,
+		  vertex_buf_size);
 
 	// 3 vertex indices per triangle face
 	const Uint32 index_buf_size = sizeof(Uint16) * 3 * model->face_count;
-	log_trace("faces %d and size %lu", model->face_count, index_buf_size);
 	ctx->index_buf = SDL_CreateGPUBuffer(
 		ctx->gpu_dev,
 		&(SDL_GPUBufferCreateInfo){ .usage = SDL_GPU_BUFFERUSAGE_INDEX,
 					    .size = index_buf_size });
+	log_trace("faces %d and size %lu", model->face_count, index_buf_size);
 
-	const Uint32 draw_buf_size = sizeof(SDL_GPUIndexedIndirectDrawCommand) *
-				     1; // only 1 draw per model
+	// only 1 draw per model
+	const Uint32 draw_buf_size =
+		sizeof(SDL_GPUIndexedIndirectDrawCommand) * 1;
 	ctx->draw_buf = SDL_CreateGPUBuffer(
 		ctx->gpu_dev, &(SDL_GPUBufferCreateInfo){
 				      .usage = SDL_GPU_BUFFERUSAGE_INDIRECT,
@@ -404,10 +405,6 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 
 	vec3 *vertex_trans = (vec3 *)SDL_MapGPUTransferBuffer(ctx->gpu_dev,
 							      trans_buf, false);
-	// TODO: doesn't work for arrays:
-	// for (int i = 0; i < model->vertex_count; ++i) {
-	// 	vertex_trans[i] = model->vertices[i];
-	// }
 	memcpy(vertex_trans, model->vertices,
 	       model->vertex_count * sizeof(vec3));
 
@@ -422,6 +419,7 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 	SDL_GPUIndexedIndirectDrawCommand *draw_trans =
 		(SDL_GPUIndexedIndirectDrawCommand
 			 *)&index_trans[3 * model->face_count];
+	// TODO: for wall, have more num_instances
 	draw_trans[0] = (SDL_GPUIndexedIndirectDrawCommand){
 		.num_indices = (Uint32)(3 * model->face_count),
 		.num_instances = 1,
@@ -470,6 +468,93 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 	log_trace("model uploaded");
 	return true;
 }
+
+SDL_GPUGraphicsPipeline *create_graphics_pipeline(SDL_GPUDevice *device,
+						  enum model_type type)
+{
+	// for now MODEL_ACTOR and MODEL_MAP have same pipeline except shaders used, since
+	// pipeline doesn't show the cbuffer shader information that distinguishes them
+	SDL_GPUGraphicsPipeline *pipeline;
+	SDL_GPUShader *vertex_shader;
+	SDL_GPUShader *frag_shader;
+
+	switch (type) {
+	case MODEL_ACTOR: {
+		vertex_shader = load_shader(rend_ctx.gpu_dev, "position.vert",
+					    0, 1, 0, 0);
+		frag_shader =
+			load_shader(rend_ctx.gpu_dev, "color.frag", 0, 0, 0, 0);
+		break;
+	}
+	case MODEL_MAP: {
+		vertex_shader = load_shader(rend_ctx.gpu_dev,
+					    "position_color_shifted.vert", 0, 1,
+					    0, 0);
+		frag_shader = load_shader(rend_ctx.gpu_dev,
+					  "vert_input_color.frag", 0, 0, 0, 0);
+		break;
+	}
+	default:
+		break;
+	}
+
+	if (!vertex_shader || !frag_shader) {
+		log_err("unable to load shaders");
+		return NULL;
+	}
+
+	SDL_GPUVertexAttribute vertex_attributes[] = {
+		{ .buffer_slot = 0,
+		  .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+		  .location = 0,
+		  .offset = 0 }
+	};
+	SDL_GPUVertexBufferDescription vertex_buffer_descriptions[] = {
+		{ .slot = 0,
+		  .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+		  .instance_step_rate = 0,
+		  .pitch = sizeof(vec3) }
+	};
+	// TODO add more vertex buffers here, one for map, one for each actor etc?
+	SDL_GPUVertexInputState vertex_input_state = {
+		.num_vertex_buffers = 1,
+		.vertex_buffer_descriptions = vertex_buffer_descriptions,
+		.num_vertex_attributes = 1,
+		.vertex_attributes = vertex_attributes,
+	};
+	SDL_GPUColorTargetDescription color_target_descriptions[] = {
+		{ .format = SDL_GetGPUSwapchainTextureFormat(
+			  rend_ctx.gpu_dev, rend_ctx.rend_info->window) }
+	};
+	SDL_GPURasterizerState rasterizer_state = {
+		.fill_mode = SDL_GPU_FILLMODE_LINE,
+		.cull_mode = SDL_GPU_CULLMODE_NONE
+	};
+	SDL_GPUGraphicsPipelineCreateInfo
+		pipeline_info = { .vertex_shader = vertex_shader,
+				  .fragment_shader = frag_shader,
+				  .vertex_input_state = vertex_input_state,
+				  .primitive_type =
+					  SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
+				  .rasterizer_state = rasterizer_state,
+				  .target_info = {
+					  .color_target_descriptions =
+						  color_target_descriptions,
+					  .num_color_targets = 1,
+				  } };
+
+	pipeline = SDL_CreateGPUGraphicsPipeline(device, &pipeline_info);
+
+	SDL_ReleaseGPUShader(rend_ctx.gpu_dev, vertex_shader);
+	SDL_ReleaseGPUShader(rend_ctx.gpu_dev, frag_shader);
+
+	return pipeline;
+}
+
+static struct gpu_map_pos_info {
+	uint8_t pos_x, pos_y;
+	vec4 color;
+};
 
 bool render_init()
 {
@@ -546,68 +631,25 @@ bool render_init()
 	}
 
 	// load models and shaders etc etc
-	SDL_GPUShader *vertex_shader =
-		load_shader(rend_ctx.gpu_dev, "position.vert", 0, 1, 0, 0);
-	SDL_GPUShader *frag_shader =
-		load_shader(rend_ctx.gpu_dev, "color.frag", 0, 0, 0, 0);
-
-	if (!vertex_shader || !frag_shader) {
-		log_err("unable to load shaders");
-		return false;
-	}
-
-	// just vertex float3 for now, no color or uv etc.
-	SDL_GPUVertexAttribute vertex_attributes[] = {
-		{ .buffer_slot = 0,
-		  .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-		  .location = 0,
-		  .offset = 0 }
-	};
-	SDL_GPUVertexBufferDescription vertex_buffer_descriptions[] = {
-		{ .slot = 0,
-		  .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-		  .instance_step_rate = 0,
-		  .pitch = sizeof(vec3) }
-	};
-	SDL_GPUVertexInputState vertex_input_state = {
-		.num_vertex_buffers = 1,
-		.vertex_buffer_descriptions = vertex_buffer_descriptions,
-		.num_vertex_attributes = 1,
-		.vertex_attributes = vertex_attributes,
-	};
-	SDL_GPUColorTargetDescription color_target_descriptions[] = {
-		{ .format = SDL_GetGPUSwapchainTextureFormat(
-			  rend_ctx.gpu_dev, rend_ctx.rend_info->window) }
-	};
-	SDL_GPURasterizerState rasterizer_state = {
-		.fill_mode = SDL_GPU_FILLMODE_LINE,
-		.cull_mode = SDL_GPU_CULLMODE_NONE
-	};
-	SDL_GPUGraphicsPipelineCreateInfo
-		pipeline_info = { .vertex_shader = vertex_shader,
-				  .fragment_shader = frag_shader,
-				  .vertex_input_state = vertex_input_state,
-				  .primitive_type =
-					  SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
-				  .rasterizer_state = rasterizer_state,
-				  .target_info = {
-					  .color_target_descriptions =
-						  color_target_descriptions,
-					  .num_color_targets = 1,
-				  } };
-
 	rend_ctx.pipeline =
-		SDL_CreateGPUGraphicsPipeline(rend_ctx.gpu_dev, &pipeline_info);
+		create_graphics_pipeline(rend_ctx.gpu_dev, MODEL_ACTOR);
 	if (!rend_ctx.pipeline) {
 		log_err("pipeline creation error: %s", SDL_GetError());
 		return false;
 	}
 
-	SDL_ReleaseGPUShader(rend_ctx.gpu_dev, vertex_shader);
-	SDL_ReleaseGPUShader(rend_ctx.gpu_dev, frag_shader);
-
 	// load vertex/index data:
-	struct model *model = load_obj("monkey.obj");
+	// struct model *model = load_obj("monkey.obj");
+	struct model *model = load_obj("cube.obj");
+	model->type = MODEL_MAP;
+
+	// set up gpu buffer for map data:
+	rend_ctx.map_data_buf = SDL_CreateGPUBuffer(
+		rend_ctx.gpu_dev,
+		&(SDL_GPUBufferCreateInfo){
+			.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
+			.size = MAX_MAP_VISIBLE *
+				sizeof(struct gpu_map_pos_info) });
 
 	// struct vec3 square_v[4] = {
 	// 	{ -1, -1, 0 }, { 1, -1, 0 }, { 1, 1, 0 }, { -1, 1, 0 }
@@ -648,7 +690,7 @@ static void camera_to_viewproj(const struct camera *cam, mat4 dest)
 	glm_mat4_mul(projection, lookat, dest);
 }
 
-bool push_gpu_map_data(struct map_pos_info *visible_map)
+bool push_gpu_map_data(const struct map_pos_info *visible_map)
 {
 	// TODO pass in *visible_map size?
 	// read in list of map data, push to gpu buffer as coords
@@ -750,9 +792,9 @@ void camera_update_from_mouse(float mouse_dx, float mouse_dy)
 void camera_update_pos(double dt, float vx, float vy)
 {
 	float dx = vy * cos(rend_ctx.camera.theta) +
-		    vx * cos(M_PI_2 - rend_ctx.camera.theta);
+		   vx * cos(M_PI_2 - rend_ctx.camera.theta);
 	float dy = -vy * cos(M_PI_2 - rend_ctx.camera.theta) +
-		    vx * cos(rend_ctx.camera.theta);
+		   vx * cos(rend_ctx.camera.theta);
 	rend_ctx.camera.pos[0] += dt * dx;
 	rend_ctx.camera.pos[2] += dt * dy;
 }

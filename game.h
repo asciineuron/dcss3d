@@ -14,6 +14,7 @@ enum frame_keys {
 };
 
 struct player {
+	// TODO move to e.g. camera?
 	float vel_x, vel_y;
 	int pos_x, pos_y; // game tile pos, not render float pos
 	enum frame_keys keystate;
@@ -37,7 +38,7 @@ struct map_pos_info {
 
 // to measure time difference for steady velocity:
 // dt seconds elapsed since last frame
-struct time {
+struct game_time {
 	uint64_t cur_tick;
 	uint64_t last_tick;
 	double dt;
@@ -47,7 +48,7 @@ struct time {
 struct game_context {
 	struct map_pos_info visible_map[MAX_MAP_VISIBLE];
 	struct player *player;
-	struct time time;
+	struct game_time time;
 };
 
 void game_update_time(struct game_context *ctx);

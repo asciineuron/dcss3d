@@ -173,7 +173,9 @@ int main(int argc, char *argv[])
 {
 	log_init();
 
-	struct player player = { .vel_x = 0., .vel_y = 0., .keystate = FRAME_KEY_NONE };
+	struct player player = { .vel_x = 0.,
+				 .vel_y = 0.,
+				 .keystate = FRAME_KEY_NONE };
 
 	struct game_context game_ctx = { {}, &player, { 0, 0, 0 } };
 
