@@ -27,9 +27,10 @@ char shader_path[PATH_MAX];
 char resource_path[PATH_MAX];
 
 static const vec4 map_type_color[MTYPE_COUNT] = {
-	[MTYPE_WALL] = { 1.0f, 0.0f, 0.0f, 1.0f },
-	[MTYPE_FLOOR] = { 0.0f, 1.0f, 0.0f, 1.0f },
-	[MTYPE_UNKNOWN] = { 0.0f, 0.0f, 1.0f, 1.0f },
+	[MTYPE_NONE] = {0.5f, 0.0f, 0.0f, 1.0f,},
+	[MTYPE_WALL] = { 0.5f, 0.5f, 0.0f, 1.0f },
+	[MTYPE_FLOOR] = { 0.0f, 0.5f, 0.0f, 1.0f },
+	[MTYPE_UNKNOWN] = { 0.5f, 0.5f, 0.5f, 1.0f },
 };
 
 struct camera {
@@ -39,23 +40,6 @@ struct camera {
 	float theta;
 	float phi;
 };
-
-struct render_context {
-	struct camera camera;
-
-	struct render_info *rend_info;
-	SDL_GPUDevice *gpu_dev;
-	SDL_GPUGraphicsPipeline *pipeline;
-
-	// add more sophisticated grouping of buffers here
-	SDL_GPUBuffer *vertex_buf;
-	SDL_GPUBuffer *index_buf;
-	SDL_GPUBuffer *draw_buf;
-	SDL_GPUBuffer *map_data_buf;
-};
-
-struct render_info rend_info;
-struct render_context rend_ctx;
 
 // for now don't support normal index:
 struct face {
@@ -79,6 +63,29 @@ struct model {
 	char *name;
 	enum model_type type;
 };
+
+struct render_context {
+	struct camera camera;
+
+	struct render_info *rend_info;
+	SDL_GPUDevice *gpu_dev;
+	SDL_GPUGraphicsPipeline *pipeline;
+
+	// add more sophisticated grouping of buffers here
+	SDL_GPUBuffer *vertex_buf;
+	SDL_GPUBuffer *index_buf;
+	SDL_GPUBuffer *draw_buf;
+	SDL_GPUBuffer
+		*map_data_buf; // store the ByteAddressBuffer data_buffer data
+	SDL_GPUTransferBuffer *map_data_pos_trans_buf;
+	SDL_GPUTransferBuffer *map_data_draw_trans_buf;
+	struct model *tile_cube;
+	struct map_pos_info last_frame_map[MAX_MAP_VISIBLE];
+	bool last_frame_changed;
+};
+
+struct render_info rend_info;
+struct render_context rend_ctx;
 
 static void free_model(struct model *m)
 {
@@ -367,6 +374,7 @@ static SDL_GPUShader *load_shader(SDL_GPUDevice *device, const char *filename,
 	return shader;
 }
 
+// TODO: need to limit how many entities are valid? is that code correct?
 static bool upload_model(struct render_context *ctx, const struct model *model)
 {
 	// TODO: use model feature flags, or determine if size=0 to skip parts
@@ -389,6 +397,7 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 	log_trace("faces %d and size %lu", model->face_count, index_buf_size);
 
 	// only 1 draw per model
+	// TODO move out of model?
 	const Uint32 draw_buf_size =
 		sizeof(SDL_GPUIndexedIndirectDrawCommand) * 1;
 	ctx->draw_buf = SDL_CreateGPUBuffer(
@@ -396,12 +405,20 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 				      .usage = SDL_GPU_BUFFERUSAGE_INDIRECT,
 				      .size = draw_buf_size });
 
+	// single indexed draw, set the N visible tiles:
+	rend_ctx.map_data_draw_trans_buf = SDL_CreateGPUTransferBuffer(
+		rend_ctx.gpu_dev,
+		&(SDL_GPUTransferBufferCreateInfo){
+			.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+			.size = (Uint32)sizeof(
+					SDL_GPUIndexedIndirectDrawCommand) *
+				1 });
+
 	SDL_GPUTransferBuffer *trans_buf = SDL_CreateGPUTransferBuffer(
 		ctx->gpu_dev,
 		&(SDL_GPUTransferBufferCreateInfo){
 			.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-			.size = vertex_buf_size + index_buf_size +
-				draw_buf_size });
+			.size = vertex_buf_size + index_buf_size });
 
 	vec3 *vertex_trans = (vec3 *)SDL_MapGPUTransferBuffer(ctx->gpu_dev,
 							      trans_buf, false);
@@ -416,9 +433,12 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 		index_trans[3 * i + 2] = model->faces[i].v_idx[2];
 	}
 
+	SDL_UnmapGPUTransferBuffer(ctx->gpu_dev, trans_buf);
+
 	SDL_GPUIndexedIndirectDrawCommand *draw_trans =
-		(SDL_GPUIndexedIndirectDrawCommand
-			 *)&index_trans[3 * model->face_count];
+		(SDL_GPUIndexedIndirectDrawCommand *)SDL_MapGPUTransferBuffer(
+			ctx->gpu_dev, ctx->map_data_draw_trans_buf, true);
+
 	// TODO: for wall, have more num_instances
 	draw_trans[0] = (SDL_GPUIndexedIndirectDrawCommand){
 		.num_indices = (Uint32)(3 * model->face_count),
@@ -428,7 +448,7 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 		.first_instance = 0
 	};
 
-	SDL_UnmapGPUTransferBuffer(ctx->gpu_dev, trans_buf);
+	SDL_UnmapGPUTransferBuffer(ctx->gpu_dev, ctx->map_data_draw_trans_buf);
 
 	SDL_GPUCommandBuffer *cmd_buf =
 		SDL_AcquireGPUCommandBuffer(ctx->gpu_dev);
@@ -451,15 +471,15 @@ static bool upload_model(struct render_context *ctx, const struct model *model)
 					.size = index_buf_size },
 		false);
 
-	SDL_UploadToGPUBuffer(
-		copy_pass,
-		&(SDL_GPUTransferBufferLocation){ .transfer_buffer = trans_buf,
-						  .offset = vertex_buf_size +
-							    index_buf_size },
-		&(SDL_GPUBufferRegion){ .buffer = ctx->draw_buf,
-					.offset = 0,
-					.size = draw_buf_size },
-		false);
+	SDL_UploadToGPUBuffer(copy_pass,
+			      &(SDL_GPUTransferBufferLocation){
+				      .transfer_buffer =
+					      ctx->map_data_draw_trans_buf,
+				      .offset = 0 },
+			      &(SDL_GPUBufferRegion){ .buffer = ctx->draw_buf,
+						      .offset = 0,
+						      .size = draw_buf_size },
+			      false);
 
 	SDL_EndGPUCopyPass(copy_pass);
 	SDL_SubmitGPUCommandBuffer(cmd_buf);
@@ -489,7 +509,7 @@ SDL_GPUGraphicsPipeline *create_graphics_pipeline(SDL_GPUDevice *device,
 	case MODEL_MAP: {
 		vertex_shader = load_shader(rend_ctx.gpu_dev,
 					    "position_color_shifted.vert", 0, 1,
-					    0, 0);
+					    1, 0);
 		frag_shader = load_shader(rend_ctx.gpu_dev,
 					  "vert_input_color.frag", 0, 0, 0, 0);
 		break;
@@ -551,10 +571,14 @@ SDL_GPUGraphicsPipeline *create_graphics_pipeline(SDL_GPUDevice *device,
 	return pipeline;
 }
 
-static struct gpu_map_pos_info {
-	uint8_t pos_x, pos_y;
+struct gpu_map_pos_info {
+	vec3 pos_xyz;
 	vec4 color;
 };
+
+// TODO investigate this, would be slightly more data bandwitdh efficient without and extra 32-bit padding
+// typedef float gpu_map_data
+// 	[7]; // xyzrgba NOTE maybe above bad due to misalignment of struct?
 
 bool render_init()
 {
@@ -577,6 +601,11 @@ bool render_init()
 		.rend_info = &rend_info, 
 		0 
 	};
+	// clear map data:
+	for (int i = 0; i < MAX_MAP_VISIBLE; ++i) {
+		rend_ctx.last_frame_map[i].type = MTYPE_NONE;
+	}
+	rend_ctx.last_frame_changed = true; // allow initial map render
 
 	// create window:
 	// 200% for retina TODO: is this needed for w, h in CreateWindow,
@@ -632,7 +661,7 @@ bool render_init()
 
 	// load models and shaders etc etc
 	rend_ctx.pipeline =
-		create_graphics_pipeline(rend_ctx.gpu_dev, MODEL_ACTOR);
+		create_graphics_pipeline(rend_ctx.gpu_dev, MODEL_MAP);
 	if (!rend_ctx.pipeline) {
 		log_err("pipeline creation error: %s", SDL_GetError());
 		return false;
@@ -642,14 +671,23 @@ bool render_init()
 	// struct model *model = load_obj("monkey.obj");
 	struct model *model = load_obj("cube.obj");
 	model->type = MODEL_MAP;
+	// track in render context as well
+	rend_ctx.tile_cube = model;
 
 	// set up gpu buffer for map data:
+	rend_ctx.map_data_pos_trans_buf = SDL_CreateGPUTransferBuffer(
+		rend_ctx.gpu_dev,
+		&(SDL_GPUTransferBufferCreateInfo){
+			.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+			.size = (Uint32)(MAX_MAP_VISIBLE *
+					 sizeof(struct gpu_map_pos_info)) });
+
 	rend_ctx.map_data_buf = SDL_CreateGPUBuffer(
 		rend_ctx.gpu_dev,
 		&(SDL_GPUBufferCreateInfo){
 			.usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
-			.size = MAX_MAP_VISIBLE *
-				sizeof(struct gpu_map_pos_info) });
+			.size = (Uint32)(MAX_MAP_VISIBLE *
+					 sizeof(struct gpu_map_pos_info)) });
 
 	// struct vec3 square_v[4] = {
 	// 	{ -1, -1, 0 }, { 1, -1, 0 }, { 1, 1, 0 }, { -1, 1, 0 }
@@ -664,7 +702,7 @@ bool render_init()
 	// 			   .face_count = 2 };
 	// print_model(&testmodel);
 	upload_model(&rend_ctx, model);
-	free(model);
+	// free(model);
 	return true;
 }
 
@@ -690,11 +728,99 @@ static void camera_to_viewproj(const struct camera *cam, mat4 dest)
 	glm_mat4_mul(projection, lookat, dest);
 }
 
-bool push_gpu_map_data(const struct map_pos_info *visible_map)
+static bool push_gpu_map_data(struct render_context *ctx,
+			      SDL_GPUCommandBuffer *cmd_buf,
+			      const struct map_pos_info *visible_map)
 {
-	// TODO pass in *visible_map size?
-	// read in list of map data, push to gpu buffer as coords
+	// TODO: need to skip if data hasn't changed since last 60fps frame, check if each map tile type is same
+	// TODO: !!! will need to store e.g. copy to creature pointer to distinguish identical monsters
+	// exit only if all tiles match, if any are different from before than it's new
+	// {
+	// 	int i;
+	// 	for (i = 0; i < MAX_MAP_VISIBLE; ++i) {
+	// 		// log_trace("visible_map[i].type : %d", visible_map[i].type); THIS IS CORRECTLY FLOOR
+	// 		if (ctx->last_frame_map[i].type != visible_map[i].type)
+	// 			break;
+	// 		ctx->last_frame_map[i].type = visible_map[i].type;
+	// 	}
+	// 	if (i == MAX_MAP_VISIBLE || visible_map[i].type == MTYPE_NONE) {
+	// 		return true; // if visible_map[idx] == MTYPE_NONE it means we exhausted the list, i.e. every element matches
+	// 	}
+	// }
+	// NOTE: simpler: just set bool frame_map_changed false here. when map is updated set it to true elsewhere, causing failure
+	if (!ctx->last_frame_changed)
+		return true;
 
+	// TODO pass in *visible_map size?
+	// translate game-native map_pos_info to gpu-native gpu_map_pos_info
+
+	struct gpu_map_pos_info *map_trans = SDL_MapGPUTransferBuffer(
+		ctx->gpu_dev, ctx->map_data_pos_trans_buf, true);
+
+	int num_tiles_visible = 0;
+	for (int i = 0; i < MAX_MAP_VISIBLE; ++i) {
+		// set position
+		map_trans[i].pos_xyz[0] = (float)visible_map[i].coord.x;
+		map_trans[i].pos_xyz[1] = (float)visible_map[i].coord.y;
+
+		// set map tile color based on its type
+		glm_vec4_copy(map_type_color[visible_map[i].type],
+			      map_trans[i].color);
+
+		if (visible_map[i].type != MTYPE_NONE)
+			++num_tiles_visible;
+	}
+	// log_trace("num_tiles_visible: %d", num_tiles_visible);
+
+	SDL_UnmapGPUTransferBuffer(ctx->gpu_dev, ctx->map_data_pos_trans_buf);
+
+	// read in list of map data, push to gpu buffer as coords
+	SDL_GPUCopyPass *copy_pass = SDL_BeginGPUCopyPass(cmd_buf);
+	SDL_UploadToGPUBuffer(copy_pass,
+			      &(SDL_GPUTransferBufferLocation){
+				      .transfer_buffer =
+					      ctx->map_data_pos_trans_buf,
+				      .offset = 0 },
+			      &(SDL_GPUBufferRegion){
+				      .buffer = ctx->map_data_buf,
+				      .offset = 0,
+				      .size = MAX_MAP_VISIBLE *
+					      sizeof(struct gpu_map_pos_info) },
+			      true);
+	SDL_EndGPUCopyPass(copy_pass);
+
+	// do same for draw_buf setting the number of visible tiles
+
+	SDL_GPUIndexedIndirectDrawCommand *draw_trans =
+		(SDL_GPUIndexedIndirectDrawCommand *)SDL_MapGPUTransferBuffer(
+			ctx->gpu_dev, ctx->map_data_draw_trans_buf, true);
+	// just update, don't set whole thing:
+	draw_trans[0] = (SDL_GPUIndexedIndirectDrawCommand){
+		.num_indices = (Uint32)(3 * ctx->tile_cube->face_count),
+		// set this:
+		.num_instances = num_tiles_visible,
+		.first_index = 0,
+		.vertex_offset = 0,
+		.first_instance = 0
+	};
+	SDL_UnmapGPUTransferBuffer(ctx->gpu_dev, ctx->map_data_draw_trans_buf);
+	log_trace("draw_trans[0].num_indices, num_instances : %d, %d",
+		  draw_trans[0].num_indices, draw_trans[0].num_instances);
+
+	copy_pass = SDL_BeginGPUCopyPass(cmd_buf);
+	SDL_UploadToGPUBuffer(
+		copy_pass,
+		&(SDL_GPUTransferBufferLocation){
+			.transfer_buffer = ctx->map_data_draw_trans_buf,
+			.offset = 0 },
+		&(SDL_GPUBufferRegion){
+			.buffer = ctx->draw_buf,
+			.offset = 0,
+			.size = sizeof(SDL_GPUIndexedIndirectDrawCommand) * 1 },
+		true);
+	SDL_EndGPUCopyPass(copy_pass);
+
+	ctx->last_frame_changed = false;
 	return true;
 }
 
@@ -708,8 +834,18 @@ bool render_draw(const struct game_context *game_ctx)
 	// 	draw_ui_overlay();
 	// }
 
+	// Do these non-direct-rendering things before acquiring render pass/command buffer
+
+	mat4 camera_transform;
+	camera_to_viewproj(&(rend_ctx.camera), camera_transform);
+
 	SDL_GPUCommandBuffer *cmd_buf =
 		SDL_AcquireGPUCommandBuffer(rend_ctx.gpu_dev);
+
+	// TODO: update here many copies based on visible map, and push relevant gpu data
+	if (!push_gpu_map_data(&rend_ctx, cmd_buf, game_ctx->visible_map)) {
+		log_err("push_gpu_map_data failed");
+	}
 
 	SDL_GPUTexture *swapchain_texture = NULL;
 	SDL_WaitAndAcquireGPUSwapchainTexture(cmd_buf,
@@ -727,32 +863,27 @@ bool render_draw(const struct game_context *game_ctx)
 		SDL_GPURenderPass *rend_pass = SDL_BeginGPURenderPass(
 			cmd_buf, &color_target_info, 1, NULL);
 
+		// bind resources:
 		SDL_BindGPUGraphicsPipeline(rend_pass, rend_ctx.pipeline);
+		// vertices:
 		SDL_BindGPUVertexBuffers(
 			rend_pass, 0,
 			&(SDL_GPUBufferBinding){ .buffer = rend_ctx.vertex_buf,
 						 .offset = 0 },
 			1);
+		// vertex index:
 		SDL_BindGPUIndexBuffer(
 			rend_pass,
-			&(SDL_GPUBufferBinding){ .buffer = rend_ctx.index_buf },
+			&(SDL_GPUBufferBinding){ .buffer = rend_ctx.index_buf,
+						 .offset = 0 },
 			SDL_GPU_INDEXELEMENTSIZE_16BIT);
-
-		// use similar to displace items in scene later
-		// glm::mat4 model = glm::rotate(
-		// 	glm::mat4(1.0f), SDL_sinf((milliseconds / 1000.0f)),
-		// 	glm::vec3(0.5f, 0.2f, 0.1f));
-
-		mat4 camera_transform;
-		camera_to_viewproj(&(rend_ctx.camera), camera_transform);
+		// map pos data:
+		// we do this one instead of pushing uniform data
+		SDL_BindGPUVertexStorageBuffers(rend_pass, 0,
+						&(rend_ctx.map_data_buf), 1);
 
 		SDL_PushGPUVertexUniformData(cmd_buf, 0, camera_transform,
 					     sizeof(mat4));
-
-		// TODO: update here many copies based on visible map, and push relevant gpu data
-		if (!push_gpu_map_data(game_ctx->visible_map)) {
-			log_err("push_gpu_map_data failed");
-		}
 
 		SDL_DrawGPUIndexedPrimitivesIndirect(rend_pass,
 						     rend_ctx.draw_buf, 0, 1);
@@ -768,6 +899,14 @@ void render_quit()
 {
 	SDL_ReleaseWindowFromGPUDevice(rend_ctx.gpu_dev,
 				       rend_ctx.rend_info->window);
+
+	SDL_ReleaseGPUTransferBuffer(rend_ctx.gpu_dev,
+				     rend_ctx.map_data_draw_trans_buf);
+	SDL_ReleaseGPUBuffer(rend_ctx.gpu_dev, rend_ctx.map_data_buf);
+	SDL_ReleaseGPUBuffer(rend_ctx.gpu_dev, rend_ctx.vertex_buf);
+	SDL_ReleaseGPUBuffer(rend_ctx.gpu_dev, rend_ctx.index_buf);
+	SDL_ReleaseGPUBuffer(rend_ctx.gpu_dev, rend_ctx.draw_buf);
+
 	SDL_DestroyGPUDevice(rend_ctx.gpu_dev);
 	SDL_DestroyWindow(rend_ctx.rend_info->window);
 }

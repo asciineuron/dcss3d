@@ -140,8 +140,8 @@ bool crossed_tile()
 }
 
 const static struct map_pos_info dummy_visible_map[MAX_MAP_VISIBLE] = {
-	{ { 1, 1 }, MTYPE_FLOOR },
-	{ { 1, 2 }, MTYPE_FLOOR }
+	{ { 1, 2 }, MTYPE_FLOOR },
+	{ { 1, -2 }, MTYPE_FLOOR }
 };
 
 struct turn *update_world(struct game_context *game_ctx)
@@ -163,8 +163,9 @@ struct turn *update_world(struct game_context *game_ctx)
 
 	// update map
 	// demo
-	memcpy(game_ctx->visible_map, dummy_visible_map,
-	       MAX_MAP_VISIBLE * sizeof(struct map_pos_info));
+	if (game_ctx->map_needs_change)
+		memcpy(game_ctx->visible_map, dummy_visible_map,
+		       MAX_MAP_VISIBLE * sizeof(struct map_pos_info));
 
 	return turn;
 }
@@ -177,7 +178,8 @@ int main(int argc, char *argv[])
 				 .vel_y = 0.,
 				 .keystate = FRAME_KEY_NONE };
 
-	struct game_context game_ctx = { {}, &player, { 0, 0, 0 } };
+	struct game_context game_ctx = {};
+	game_ctx.player = &player;
 
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		log_err("SDL_Init failure: %s", SDL_GetError());
@@ -188,6 +190,10 @@ int main(int argc, char *argv[])
 		log_err("render_init failure");
 		return EXIT_FAILURE;
 	}
+
+	// dummy once here
+	memcpy(game_ctx.visible_map, dummy_visible_map,
+		       MAX_MAP_VISIBLE * sizeof(struct map_pos_info));
 
 	while (!done) {
 		// update time

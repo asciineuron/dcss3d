@@ -2,6 +2,7 @@
 #define GAME_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 // for frame-level key state, not key-poll level changes e.g. open inventory, quit
 enum frame_keys {
@@ -23,11 +24,13 @@ struct player {
 // DCSS defaults to 15x15 square LOS for most species, use for now
 #define MAX_MAP_VISIBLE 225
 
-enum map_type { MTYPE_WALL, MTYPE_FLOOR, MTYPE_UNKNOWN, MTYPE_COUNT };
+// use MTYPE_NONE as nonvisible tile. can use first instance to terminate visible_map list
+// maybe too complicated, for now just set all MAX_MAP_VISIBLE to MTYPE_NONE, then skip shader output if so
+enum map_type { MTYPE_NONE, MTYPE_WALL, MTYPE_FLOOR, MTYPE_UNKNOWN, MTYPE_COUNT };
 
 // does dcss have negative coords or is 0 at corner?
 struct map_coord {
-	int x, y;
+	float x, y;
 };
 
 struct map_pos_info {
@@ -49,6 +52,9 @@ struct game_context {
 	struct map_pos_info visible_map[MAX_MAP_VISIBLE];
 	struct player *player;
 	struct game_time time;
+	// means this game loop update everything again for the new layout,
+	// otherwise skip assume same as before:
+	bool map_needs_change;
 };
 
 void game_update_time(struct game_context *ctx);
