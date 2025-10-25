@@ -6,11 +6,10 @@
 #include <assert.h>
 #include <stdio.h>
 
-// translates raw text input into whatever data updates needed, prob calls many systems
-bool process_turn_response(const char *response);
-
 bool do_turn(const struct turn *turn, struct game_context *ctx)
 {
+	log_trace("doing turn");
+
 	assert(turn);
 	bool success = true;
 
@@ -32,18 +31,11 @@ bool do_turn(const struct turn *turn, struct game_context *ctx)
 	if (!response)
 		success = false;
 
-	success = process_turn_response(response);
+	success = process_turn_response(response, ctx);
 
 	if (success)
 		++(ctx->time.game_turn);
 	return success;
-}
-
-bool process_turn_response(const char *response)
-{
-	assert(response);
-	printf("response:\n%s\n", response);
-	return true;
 }
 
 void free_turn(struct turn *turn)

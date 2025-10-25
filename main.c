@@ -1,5 +1,6 @@
 #include "game.h"
 #include "log.h"
+#include "net_data.h"
 #include "render.h"
 #include "turn.h"
 
@@ -10,7 +11,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
-#define VELOCITY 0.8
+#define VELOCITY 1.0
 
 bool done = false;
 
@@ -41,6 +42,10 @@ struct turn *process_key(SDL_KeyboardEvent *key_event,
 		case SDL_SCANCODE_LSHIFT:
 			off_keys |= FRAME_KEY_LSHIFT;
 			break;
+		case SDL_SCANCODE_SPACE:
+			turn = malloc(sizeof(struct turn));
+			*turn = (struct turn){ .type = TURN_MOVE,
+					       .value.move = MOVE_N };
 		default:
 			break;
 		}
@@ -191,9 +196,19 @@ int main(int argc, char *argv[])
 		return EXIT_FAILURE;
 	}
 
+	// todo allow running without network?
+	if (!net_data_init()) {
+		log_err("net_init failure");
+		return EXIT_FAILURE;
+	}
+
 	// dummy once here
 	memcpy(game_ctx.visible_map, dummy_visible_map,
-		       MAX_MAP_VISIBLE * sizeof(struct map_pos_info));
+	       MAX_MAP_VISIBLE * sizeof(struct map_pos_info));
+
+	struct turn init_turn = { .type = TURN_MOVE,
+			     .value.move = MOVE_N };
+	do_turn(&init_turn, &game_ctx);
 
 	while (!done) {
 		// update time

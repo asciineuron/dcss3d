@@ -30,7 +30,8 @@ static const vec4 map_type_color[MTYPE_COUNT] = {
 	[MTYPE_NONE] = {0.5f, 0.0f, 0.0f, 1.0f,},
 	[MTYPE_WALL] = { 0.5f, 0.5f, 0.0f, 1.0f },
 	[MTYPE_FLOOR] = { 0.0f, 0.5f, 0.0f, 1.0f },
-	[MTYPE_UNKNOWN] = { 0.5f, 0.5f, 0.5f, 1.0f },
+	[MTYPE_UNEXPLORED] = { 0.5f, 0.5f, 0.5f, 1.0f },
+	[MTYPE_UNKNOWN] = { 0.0f, 0.5f, 0.5f, 1.0f },
 };
 
 struct camera {
@@ -548,7 +549,7 @@ SDL_GPUGraphicsPipeline *create_graphics_pipeline(SDL_GPUDevice *device,
 	};
 	SDL_GPURasterizerState rasterizer_state = {
 		.fill_mode = SDL_GPU_FILLMODE_LINE,
-		.cull_mode = SDL_GPU_CULLMODE_NONE
+		.cull_mode = SDL_GPU_CULLMODE_FRONT
 	};
 	SDL_GPUGraphicsPipelineCreateInfo
 		pipeline_info = { .vertex_shader = vertex_shader,
@@ -573,6 +574,7 @@ SDL_GPUGraphicsPipeline *create_graphics_pipeline(SDL_GPUDevice *device,
 
 struct gpu_map_pos_info {
 	vec3 pos_xyz;
+	uint32_t map_type;
 	vec4 color;
 };
 
@@ -759,9 +761,14 @@ static bool push_gpu_map_data(struct render_context *ctx,
 
 	int num_tiles_visible = 0;
 	for (int i = 0; i < MAX_MAP_VISIBLE; ++i) {
-		// set position
-		map_trans[i].pos_xyz[0] = (float)visible_map[i].coord.x;
-		map_trans[i].pos_xyz[1] = (float)visible_map[i].coord.y;
+		// set position, cube extends +-1 xyz i.e. width = 2.0
+		// NOTE need to flip axis
+		map_trans[i].pos_xyz[0] =
+			((float)visible_map[i].coord.y * -2.0f) + 0.5f;
+		map_trans[i].pos_xyz[1] =
+			((float)visible_map[i].coord.x * 2.0f) + 0.5f;
+
+		map_trans[i].map_type = (uint32_t)visible_map[i].type;
 
 		// set map tile color based on its type
 		glm_vec4_copy(map_type_color[visible_map[i].type],

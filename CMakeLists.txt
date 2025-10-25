@@ -3,7 +3,7 @@ project(dcss3d C)
 
 add_executable(dcss3d)
 
-target_sources(dcss3d PRIVATE turn.c render.c net_data.c log.c game.c main.c)
+target_sources(dcss3d PRIVATE turn.c render.c net_data.c log.c game.c cJSON.c main.c)
 
 set(CMAKE_BUILD_TYPE Debug)
 

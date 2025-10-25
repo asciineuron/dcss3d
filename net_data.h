@@ -20,4 +20,9 @@ bool send_turn_message(const char *message);
 // call once per call of send_turn_message
 const char *get_turn_response(void);
 
+struct game_context;
+// e.g. read json into struct map_pos_info[] format
+// TODO: how to split between turn.c?
+bool process_turn_response(const char *response, struct game_context *ctx);
+
 #endif
