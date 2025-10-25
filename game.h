@@ -1,7 +1,9 @@
 #ifndef GAME_H
 #define GAME_H
 
- #include <stddef.h>
+#include "cglm/include/cglm/cglm.h"
+
+#include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -15,12 +17,26 @@ enum frame_keys {
 	FRAME_KEY_LSHIFT = 1 << 5
 };
 
+// need to sync player and camera pos. player's is just int clipping. when it changes send move turn
+struct camera {
+	vec3 pos; // x,y,z
+	float fov;
+	float aspect_ratio;
+	float theta;
+	float phi;
+};
+
 struct player {
-	// TODO move to e.g. camera?
+	struct camera camera;
 	float vel_x, vel_y;
 	int pos_x, pos_y; // game tile pos, not render float pos
 	enum frame_keys keystate;
 };
+
+// player or just its camera? view can be camera only, pos needs to do extra work
+void update_player_view(struct player *player, float mouse_dx, float mouse_dy);
+// do collision detection here:
+struct turn *update_player_pos(struct player *player, double dt);
 
 // DCSS defaults to 15x15 square LOS for most species, use for now
 #define MAX_MAP_VISIBLE 225

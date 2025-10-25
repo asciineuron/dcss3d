@@ -11,7 +11,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
-#define VELOCITY 1.0
+#define VELOCITY 1.5
 
 bool done = false;
 
@@ -81,6 +81,8 @@ struct turn *process_key(SDL_KeyboardEvent *key_event,
 // update state for this frame based on keyboard, mouse input
 void process_frame_input(struct game_context *game_ctx)
 {
+	// todo for now only needs player from game_ctx, replace parameter?
+
 	// clear old velocity
 	game_ctx->player->vel_x = 0;
 	game_ctx->player->vel_y = 0;
@@ -103,7 +105,7 @@ void process_frame_input(struct game_context *game_ctx)
 	float mouse_dx, mouse_dy;
 	SDL_MouseButtonFlags mouse_state =
 		SDL_GetRelativeMouseState(&mouse_dx, &mouse_dy);
-	camera_update_from_mouse(mouse_dx, mouse_dy);
+	update_player_view(game_ctx->player, mouse_dx, mouse_dy);
 }
 
 struct turn *process_event(SDL_Event *event, struct game_context *game_ctx)
@@ -139,11 +141,6 @@ struct turn *process_event(SDL_Event *event, struct game_context *game_ctx)
 	return turn;
 }
 
-bool crossed_tile()
-{
-	return false;
-}
-
 const static struct map_pos_info dummy_visible_map[MAX_MAP_VISIBLE] = {
 	{ { 1, 2 }, MTYPE_FLOOR },
 	{ { 1, -2 }, MTYPE_FLOOR }
@@ -151,20 +148,13 @@ const static struct map_pos_info dummy_visible_map[MAX_MAP_VISIBLE] = {
 
 struct turn *update_world(struct game_context *game_ctx)
 {
+	// called per frame, only expected turn is a move for tile crossing
 	struct turn *turn = NULL;
 
 	process_frame_input(game_ctx);
 
-	// update camera and move relative the pointed direction
-	camera_update_pos(game_ctx->time.dt, game_ctx->player->vel_x,
-			  game_ctx->player->vel_y);
-
-	// check if tile bounds crossed, if so take turn
-	if (crossed_tile()) {
-		turn = malloc(sizeof(struct turn));
-		*turn = (struct turn){ .type = TURN_MOVE,
-				       .value.move = MOVE_N };
-	}
+	// update camera and move relative the pointed direction, may generate game movement turn
+	turn = update_player_pos(game_ctx->player, game_ctx->time.dt);
 
 	// update map
 	// demo
@@ -179,9 +169,18 @@ int main(int argc, char *argv[])
 {
 	log_init();
 
-	struct player player = { .vel_x = 0.,
-				 .vel_y = 0.,
-				 .keystate = FRAME_KEY_NONE };
+	struct player player = { 
+		.camera = { 
+			.pos = GLM_VEC3_ZERO_INIT,
+			.fov = FOV_RAD,
+			.aspect_ratio = ASPECT,
+			.theta = 0,
+			.phi = 0,
+		},
+		.vel_x = 0.,
+		.vel_y = 0.,
+		.keystate = FRAME_KEY_NONE 
+	};
 
 	struct game_context game_ctx = {};
 	game_ctx.player = &player;
@@ -206,8 +205,7 @@ int main(int argc, char *argv[])
 	memcpy(game_ctx.visible_map, dummy_visible_map,
 	       MAX_MAP_VISIBLE * sizeof(struct map_pos_info));
 
-	struct turn init_turn = { .type = TURN_MOVE,
-			     .value.move = MOVE_N };
+	struct turn init_turn = { .type = TURN_MOVE, .value.move = MOVE_N };
 	do_turn(&init_turn, &game_ctx);
 
 	while (!done) {

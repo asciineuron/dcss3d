@@ -8,6 +8,7 @@ struct game_context;
 enum turn_type { TURN_MOVE, TURN_TESTMALLOC, TURN_ERR };
 
 enum move_direction {
+	MOVE_NONE, // didn't clear a cell
 	MOVE_N,
 	MOVE_E,
 	MOVE_S,
@@ -15,7 +16,9 @@ enum move_direction {
 	MOVE_NE,
 	MOVE_SE,
 	MOVE_SW,
-	MOVE_NW
+	MOVE_NW,
+	MOVE_WAIT, // '.' key, wait
+	MOVE_COUNT
 };
 
 union turn_data {

@@ -1,6 +1,9 @@
 #include "render.h"
 #include "log.h"
 
+// TODO: add cglm/include to include path
+#include "cglm/include/cglm/cglm.h"
+
 #include <limits.h>
 #include <math.h>
 #include <SDL3/SDL.h>
@@ -14,15 +17,6 @@
 #define WIN_W 1920
 #define WIN_H 1080
 
-// aspect ratio may warrant unequal x and y sensitivities
-#define MOUSE_SENSITIVITY_X 0.005
-#define MOUSE_SENSITIVITY_Y 0.005
-
-#define FOV_RAD 0.785398
-// TODO for mouse fix for x vs y?
-#define FOV_DEG 45
-#define ASPECT 1.777777
-
 char shader_path[PATH_MAX];
 char resource_path[PATH_MAX];
 
@@ -32,14 +26,6 @@ static const vec4 map_type_color[MTYPE_COUNT] = {
 	[MTYPE_FLOOR] = { 0.0f, 0.5f, 0.0f, 1.0f },
 	[MTYPE_UNEXPLORED] = { 0.5f, 0.5f, 0.5f, 1.0f },
 	[MTYPE_UNKNOWN] = { 0.0f, 0.5f, 0.5f, 1.0f },
-};
-
-struct camera {
-	vec3 pos; // x,y,z
-	float fov;
-	float aspect_ratio;
-	float theta;
-	float phi;
 };
 
 // for now don't support normal index:
@@ -66,8 +52,6 @@ struct model {
 };
 
 struct render_context {
-	struct camera camera;
-
 	struct render_info *rend_info;
 	SDL_GPUDevice *gpu_dev;
 	SDL_GPUGraphicsPipeline *pipeline;
@@ -593,13 +577,6 @@ bool render_init()
 	log_trace("using shader dir: %s", shader_path);
 
 	rend_ctx = (struct render_context) { 
-		.camera = { 
-			.pos = GLM_VEC3_ZERO_INIT,
-			.fov = FOV_RAD,
-			.aspect_ratio = ASPECT,
-			.theta = 0,
-			.phi = 0,
-		},
 		.rend_info = &rend_info, 
 		0 
 	};
@@ -844,7 +821,7 @@ bool render_draw(const struct game_context *game_ctx)
 	// Do these non-direct-rendering things before acquiring render pass/command buffer
 
 	mat4 camera_transform;
-	camera_to_viewproj(&(rend_ctx.camera), camera_transform);
+	camera_to_viewproj(&(game_ctx->player->camera), camera_transform);
 
 	SDL_GPUCommandBuffer *cmd_buf =
 		SDL_AcquireGPUCommandBuffer(rend_ctx.gpu_dev);
@@ -916,31 +893,4 @@ void render_quit()
 
 	SDL_DestroyGPUDevice(rend_ctx.gpu_dev);
 	SDL_DestroyWindow(rend_ctx.rend_info->window);
-}
-
-static float wrap(float x, float min, float max)
-{
-	if (min > max)
-		return wrap(x, max, min);
-	return (x >= 0 ? min : max) + fmod(x, max - min);
-}
-
-void camera_update_from_mouse(float mouse_dx, float mouse_dy)
-{
-	rend_ctx.camera.theta -= (mouse_dx * MOUSE_SENSITIVITY_X);
-	rend_ctx.camera.phi -= (mouse_dy * MOUSE_SENSITIVITY_Y);
-
-	// wraparound into [0, 2pi] range:
-	rend_ctx.camera.theta = wrap(rend_ctx.camera.theta, 0, 2 * M_PI);
-	rend_ctx.camera.phi = wrap(rend_ctx.camera.phi, 0, 2 * M_PI);
-}
-
-void camera_update_pos(double dt, float vx, float vy)
-{
-	float dx = vy * cos(rend_ctx.camera.theta) +
-		   vx * cos(M_PI_2 - rend_ctx.camera.theta);
-	float dy = -vy * cos(M_PI_2 - rend_ctx.camera.theta) +
-		   vx * cos(rend_ctx.camera.theta);
-	rend_ctx.camera.pos[0] += dt * dx;
-	rend_ctx.camera.pos[2] += dt * dy;
 }

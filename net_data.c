@@ -176,7 +176,7 @@ bool process_turn_response(const char *response, struct game_context *ctx)
 	cJSON *response_json = cJSON_Parse(response);
 
 	char *response_print = cJSON_Print(response_json);
-	log_info("response json: %s", response_print);
+	log_trace("response json: %s", response_print);
 
 	// for now expect msg: map, cells: array of object with xys
 	const cJSON *cells =

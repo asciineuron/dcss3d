@@ -17,6 +17,8 @@ if (MATH_LIB)
 	target_link_libraries(dcss3d PRIVATE ${MATH_LIB})
 endif()
 
+add_compile_options(-Wpadding -Wall -Wextra -Wpedantic)
+
 file(COPY ${PROJECT_SOURCE_DIR}/resources DESTINATION ${CMAKE_BINARY_DIR})
 # also for compiled shaders
 file(COPY ${PROJECT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR})
