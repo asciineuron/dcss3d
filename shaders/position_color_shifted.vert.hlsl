@@ -48,7 +48,7 @@ main_out main(main_in input)
 
 	float3 shift = { tile_x, 0.0f, tile_y };
 	if (type == MTYPE_FLOOR)
-		shift.y = -2.0f;
+		shift.y = -1.0f;
 
 	float4x4 tile_translate = IDENTITY_MATRIX;
 	tile_translate = m_translate(tile_translate, shift);

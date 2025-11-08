@@ -1,12 +1,10 @@
 #include "render.h"
 #include "log.h"
 
-// TODO: add cglm/include to include path
-#include "cglm/include/cglm/cglm.h"
+#include <SDL3/SDL.h>
 
 #include <limits.h>
 #include <math.h>
-#include <SDL3/SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -71,6 +69,9 @@ struct render_context {
 
 struct render_info rend_info;
 struct render_context rend_ctx;
+
+extern void map_tile_to_render_coords(struct map_coord coord, vec3 dest);
+extern void render_coords_llx_lly_urx_ury(vec3 coords, vec4 dest);
 
 static void free_model(struct model *m)
 {
@@ -142,6 +143,7 @@ static char *load_file(const char *file, size_t *size)
 // re-read, parse into data structures
 static struct model *load_obj(const char *file)
 {
+	// TODO: manual comments seemed to segfault this function
 	char full_file[PATH_MAX];
 	snprintf(full_file, PATH_MAX, "%s/%s", resource_path, file);
 	size_t fsize;
@@ -532,7 +534,7 @@ SDL_GPUGraphicsPipeline *create_graphics_pipeline(SDL_GPUDevice *device,
 			  rend_ctx.gpu_dev, rend_ctx.rend_info->window) }
 	};
 	SDL_GPURasterizerState rasterizer_state = {
-		.fill_mode = SDL_GPU_FILLMODE_LINE,
+		.fill_mode = SDL_GPU_FILLMODE_FILL,
 		.cull_mode = SDL_GPU_CULLMODE_FRONT
 	};
 	SDL_GPUGraphicsPipelineCreateInfo
@@ -648,7 +650,7 @@ bool render_init()
 
 	// load vertex/index data:
 	// struct model *model = load_obj("monkey.obj");
-	struct model *model = load_obj("cube.obj");
+	struct model *model = load_obj("cube1.obj");
 	model->type = MODEL_MAP;
 	// track in render context as well
 	rend_ctx.tile_cube = model;
@@ -738,12 +740,8 @@ static bool push_gpu_map_data(struct render_context *ctx,
 
 	int num_tiles_visible = 0;
 	for (int i = 0; i < MAX_MAP_VISIBLE; ++i) {
-		// set position, cube extends +-1 xyz i.e. width = 2.0
-		// NOTE need to flip axis
-		map_trans[i].pos_xyz[0] =
-			((float)visible_map[i].coord.y * -2.0f) + 0.5f;
-		map_trans[i].pos_xyz[1] =
-			((float)visible_map[i].coord.x * 2.0f) + 0.5f;
+		// set position
+		map_tile_to_render_coords(visible_map[i].coord, map_trans[i].pos_xyz);
 
 		map_trans[i].map_type = (uint32_t)visible_map[i].type;
 

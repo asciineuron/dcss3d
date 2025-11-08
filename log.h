@@ -1,6 +1,10 @@
 #ifndef LOG_H
 #define LOG_H
 
+// TODO: refactor into a compile-flag level based printout, so
+// no-op functions are removed from code altogether
+// otherwise penalizes hot loops
+
 void log_err_full(const char *file, const int line, const char *fmt, ...);
 
 #define log_err(fmt, ...)                                     \

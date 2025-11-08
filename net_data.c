@@ -219,7 +219,8 @@ bool process_turn_response(const char *response, struct game_context *ctx)
 					ret = false;
 					goto exit;
 				}
-				tile_info.coord.x = cell_elem->valueint;
+				// TODO tile coord should be int?
+				tile_info.coord.x = (float)cell_elem->valueint;
 				has_x = true;
 			} else if (strcmp(cell_elem->string, "y") == 0) {
 				if (!cJSON_IsNumber(cell_elem)) {
@@ -228,7 +229,7 @@ bool process_turn_response(const char *response, struct game_context *ctx)
 					ret = false;
 					goto exit;
 				}
-				tile_info.coord.y = cell_elem->valueint;
+				tile_info.coord.y = (float)cell_elem->valueint;
 			} else if (strcmp(cell_elem->string, "mf") == 0) {
 				if (!cJSON_IsNumber(cell_elem)) {
 					log_err("cell_elem mf json element is not a number: %f",

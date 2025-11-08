@@ -17,6 +17,9 @@ enum frame_keys {
 	FRAME_KEY_LSHIFT = 1 << 5
 };
 
+// clipping box to apply for collision detection around camera float position
+#define PLAYER_BBOX_WIDTH 0.1
+
 // need to sync player and camera pos. player's is just int clipping. when it changes send move turn
 struct camera {
 	vec3 pos; // x,y,z
@@ -34,9 +37,7 @@ struct player {
 };
 
 // player or just its camera? view can be camera only, pos needs to do extra work
-void update_player_view(struct player *player, float mouse_dx, float mouse_dy);
-// do collision detection here:
-struct turn *update_player_pos(struct player *player, double dt);
+void update_player_view(struct player *player, const float mouse_dx, const float mouse_dy);
 
 // DCSS defaults to 15x15 square LOS for most species, use for now
 #define MAX_MAP_VISIBLE 225
@@ -54,7 +55,7 @@ enum map_type {
 
 // does dcss have negative coords or is 0 at corner?
 struct map_coord {
-	float x, y;
+	float x, y; // should be int? that's how game represents it
 };
 
 struct map_pos_info {
@@ -62,6 +63,9 @@ struct map_pos_info {
 	enum map_type type;
 	// etc.
 };
+
+// do collision detection here:
+struct turn *update_player_pos(struct player *player, const double dt, const struct map_pos_info *visible_map, const size_t visible_map_size);
 
 // to measure time difference for steady velocity:
 // dt seconds elapsed since last frame
@@ -83,6 +87,6 @@ struct game_context {
 
 void game_update_time(struct game_context *ctx);
 
-void print_map_pos_info(struct map_pos_info *visible_map, size_t map_size);
+void print_map_pos_info(const struct map_pos_info *visible_map, const size_t map_size);
 
 #endif

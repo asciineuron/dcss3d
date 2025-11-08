@@ -154,7 +154,7 @@ struct turn *update_world(struct game_context *game_ctx)
 	process_frame_input(game_ctx);
 
 	// update camera and move relative the pointed direction, may generate game movement turn
-	turn = update_player_pos(game_ctx->player, game_ctx->time.dt);
+	turn = update_player_pos(game_ctx->player, game_ctx->time.dt, game_ctx->visible_map, MAX_MAP_VISIBLE);
 
 	// update map
 	// demo
@@ -174,13 +174,16 @@ int main(int argc, char *argv[])
 			.pos = GLM_VEC3_ZERO_INIT,
 			.fov = FOV_RAD,
 			.aspect_ratio = ASPECT,
-			.theta = 0,
+			.theta = 0, // assuming theta=0 points into screen ie +z
 			.phi = 0,
 		},
 		.vel_x = 0.,
 		.vel_y = 0.,
 		.keystate = FRAME_KEY_NONE 
 	};
+	// temp shift forward
+	player.camera.pos[0] = 0.5;
+	player.camera.pos[2] = -0.5;
 
 	struct game_context game_ctx = {};
 	game_ctx.player = &player;
