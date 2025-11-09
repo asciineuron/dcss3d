@@ -75,9 +75,9 @@ int main(int argc, char *argv[])
 	bool single_line_input = isatty(STDIN_FILENO);
 
 	ssize_t recv_len = 0;
-	size_t input_len = 0;
+	uint32_t input_len = 0;
 
-	size_t msg_len = 0; // {len, buffer} encoding
+	uint32_t msg_len = 0; // {len, buffer} encoding
 
 	// hang onto client. detect if client disconnects, and
 	// only then close() it. rather than closing after sending one message...
@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
 				// trim fgets-included newline if any:
 				input[strcspn(input, "\n")] = '\0';
 				// TODO: reuse strcspn index vs redoing strlen since same (+1?)
-				input_len = (size_t)strlen(input);
+				input_len = (uint32_t)strlen(input);
 				if (input_len == 0) {
 					continue;
 				}
@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
 				input[input_len] = '\0';
 			}
 
-			printf("message from stdin, len %zu:\n%s\n", input_len,
+			printf("message from stdin, len %u:\n%s\n", input_len,
 			       input);
 
 			// len header
@@ -122,8 +122,8 @@ int main(int argc, char *argv[])
 
 			// body
 			// loop to ensure full message sent:
-			size_t tot_sent = 0;
-			size_t this_send = 0;
+			uint32_t tot_sent = 0;
+			uint32_t this_send = 0;
 			while (tot_sent < input_len) {
 				if ((this_send = send(
 					     client_fd, input + tot_sent,
@@ -176,8 +176,8 @@ int main(int argc, char *argv[])
 				exit(EXIT_FAILURE);
 			}
 			// loop to ensure full message sent:
-			size_t tot_sent = 0;
-			size_t this_send = 0;
+			uint32_t tot_sent = 0;
+			uint32_t this_send = 0;
 			while (tot_sent < input_len) {
 				if ((this_send = send(
 					     client_fd, input + tot_sent,

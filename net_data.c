@@ -22,7 +22,7 @@ static int sock_fd;
 #define MSG_INIT_LEN 2048
 
 char *cur_msg;
-static size_t cur_msg_max_size; // buffer size, largest message received so far
+static uint32_t cur_msg_max_size; // buffer size, largest message received so far
 
 int msg_idx;
 
@@ -96,7 +96,7 @@ const char *turn_to_message(const struct turn *turn)
 
 bool send_turn_message(const char *message)
 {
-	size_t msgsz = (size_t)strlen(message);
+	uint32_t msgsz = (uint32_t)strlen(message);
 	// don't include \0 here, client will have to pad own received string
 	if (send(sock_fd, &msgsz, sizeof(msgsz), 0) != sizeof(msgsz)) {
 		perror("send failed");
@@ -120,7 +120,7 @@ bool send_turn_message(const char *message)
 
 const char *get_turn_response(void)
 {
-	// for fixed header-sized messages, define this to be our message interface: {size_t len, message}
+	// for fixed header-sized messages, define this to be our message interface: {uint32_t len, message}
 
 	// wait until readable POLLIN
 	if (poll(fds, 1, -1) < 1) {
@@ -133,12 +133,12 @@ const char *get_turn_response(void)
 	}
 
 	// read size header, set up appropriately sized message buffer
-	size_t len;
+	uint32_t len;
 	if (recv(sock_fd, &len, sizeof(len), 0) != sizeof(len)) {
 		perror("recv header len failed");
 		return NULL;
 	}
-	fprintf(stderr, "received len: %zu\n", len);
+	fprintf(stderr, "received len: %u\n", len);
 
 	// >= since we need to add an additional '\0'
 	if (len >= cur_msg_max_size) {
@@ -149,8 +149,8 @@ const char *get_turn_response(void)
 		cur_msg_max_size = len + 1;
 	}
 
-	size_t bytes_read = 0;
-	size_t bytes_remaining = len;
+	uint32_t bytes_read = 0;
+	uint32_t bytes_remaining = len;
 	while (bytes_remaining > 0) {
 		if ((len = recv(sock_fd, cur_msg + bytes_read, bytes_remaining,
 				0)) == -1) {
