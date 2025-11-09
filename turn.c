@@ -18,18 +18,19 @@ bool do_turn(const struct turn *turn, struct game_context *ctx)
 		success = false;
 	}
 
-	const char *turn_message = turn_to_message(turn);
+	char *turn_message = turn_to_message(turn);
 	if (!turn_message)
 		success = false;
 
 	printf("sending message: \n%s\n", turn_message);
-
 	if (!send_turn_message(turn_message))
 		success = false;
+	free(turn_message);
 
-	const char *response = get_turn_response();
-	if (!response)
+	success = get_turn_response();
+	if (!success)
 		success = false;
+	const char* response = cur_msg;
 
 	success = process_turn_response(response, ctx);
 

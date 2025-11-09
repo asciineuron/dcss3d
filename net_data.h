@@ -11,14 +11,21 @@ extern int msg_idx;
 bool net_data_init(void);
 bool net_data_exit(void);
 
-const char *turn_to_message(const struct turn *turn);
+char *turn_to_message(const struct turn *turn);
 
 // call this in void do_turn(turn); which sends message, parses response, and updates game state accordingly
 // (separate from a dcss turn since a move may be less than 1 turn of game time)
 bool send_turn_message(const char *message);
 
 // call once per call of send_turn_message
-const char *get_turn_response(void);
+bool get_turn_response(void);
+
+// TODO: need a check update function to see if we got more data to update the map state
+// TODO: run on thread?
+bool check_game_response(void);
+
+// keep reading input data until map has been received
+bool load_initial_map(struct game_context *ctx);
 
 struct game_context;
 // e.g. read json into struct map_pos_info[] format

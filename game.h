@@ -40,7 +40,9 @@ struct player {
 void update_player_view(struct player *player, const float mouse_dx, const float mouse_dy);
 
 // DCSS defaults to 15x15 square LOS for most species, use for now
-#define MAX_MAP_VISIBLE 225
+// #define MAX_MAP_VISIBLE 225
+// #define MAX_MAP_VISIBLE 600
+#define MAX_MAP_VISIBLE 300
 
 // use MTYPE_NONE as nonvisible tile. can use first instance to terminate visible_map list
 // maybe too complicated, for now just set all MAX_MAP_VISIBLE to MTYPE_NONE, then skip shader output if so

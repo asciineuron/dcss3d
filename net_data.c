@@ -31,7 +31,7 @@ struct pollfd fds[1];
 // for each mf we see
 // supposedly 26 = unexplored is the last
 #define MF_MAX 26
-static enum map_type mf_to_map_type[MF_MAX+1];
+static enum map_type mf_to_map_type[MF_MAX + 1];
 
 bool net_data_init(void)
 {
@@ -40,7 +40,7 @@ bool net_data_init(void)
 		return true;
 
 	// set map network type to internal type correspondence
-	for (int i = 0; i < MF_MAX+1; ++i) {
+	for (int i = 0; i < MF_MAX + 1; ++i) {
 		mf_to_map_type[i] = MTYPE_UNKNOWN;
 	}
 	mf_to_map_type[1] = MTYPE_FLOOR;
@@ -54,7 +54,7 @@ bool net_data_init(void)
 	}
 
 	// dummy init msg string
-	strcpy(cur_msg, "waiting for message...");
+	// strcpy(cur_msg, "waiting for message...");
 
 	if ((sock_fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
 		perror("socket creation failed");
@@ -89,9 +89,39 @@ bool net_data_exit(void)
 	return true;
 }
 
-const char *turn_to_message(const struct turn *turn)
+char *turn_to_message(const struct turn *turn)
 {
-	return "this is a test turn message";
+	// return "this is a test turn message";
+	// TODO: look into special keys e.g. South East “key_dir_se” {“msg”: “input”, “text”: “3”}
+	// return "{\"msg\": \"input\", \"text\": \".\"}";
+
+	char msg_detail[5] = {0};
+	switch (turn->type) {
+	case TURN_MOVE:
+		switch (turn->value.move) {
+		case MOVE_N:
+			msg_detail[0] = '8';
+			break;
+		case MOVE_S:
+			msg_detail[0] = '2';
+			break;
+		case MOVE_E:
+			msg_detail[0] = '6';
+			break;
+		case MOVE_W:
+			msg_detail[0] = '4';
+			break;
+		default:
+			break;
+		}
+		break;
+	default:
+		msg_detail[0] = '.';
+		break;
+	}
+	char message[100];
+	snprintf(message, 100, "{\"msg\": \"input\", \"text\": \"%s\"}", msg_detail);
+	return strdup(message);
 }
 
 bool send_turn_message(const char *message)
@@ -118,25 +148,29 @@ bool send_turn_message(const char *message)
 	return true;
 }
 
-const char *get_turn_response(void)
+static bool poll_turn_response(int timeout)
 {
 	// for fixed header-sized messages, define this to be our message interface: {uint32_t len, message}
-
 	// wait until readable POLLIN
-	if (poll(fds, 1, -1) < 1) {
-		fprintf(stderr, "poll error or not ready\n");
-		return NULL;
+	if (poll(fds, 1, timeout) < 0) {
+		perror("poll error");
+		return false;
+	} else if (poll(fds, 1, timeout) == 0) {
+		// TODO: refactor into a separate thread so we don't have to poll each game loop? not sure how expensive
+		// log_trace("no poll turn response");
+		return true;
 	}
+
 	if (fds[0].revents & POLLHUP) {
 		fprintf(stderr, "poll hangup\n");
-		return NULL;
+		return false;
 	}
 
 	// read size header, set up appropriately sized message buffer
 	uint32_t len;
 	if (recv(sock_fd, &len, sizeof(len), 0) != sizeof(len)) {
 		perror("recv header len failed");
-		return NULL;
+		return false;
 	}
 	fprintf(stderr, "received len: %u\n", len);
 
@@ -144,7 +178,7 @@ const char *get_turn_response(void)
 	if (len >= cur_msg_max_size) {
 		if ((cur_msg = realloc(cur_msg, len + 1)) == NULL) {
 			fputs("failed to realloc message buffer", stderr);
-			return NULL;
+			return false;
 		}
 		cur_msg_max_size = len + 1;
 	}
@@ -155,28 +189,101 @@ const char *get_turn_response(void)
 		if ((len = recv(sock_fd, cur_msg + bytes_read, bytes_remaining,
 				0)) == -1) {
 			perror("recv failed");
-			return NULL;
+			return false;
 		}
 		bytes_read += len;
 		bytes_remaining -= len;
+
+		// print partial message:
+		// cur_msg[bytes_read] = '\0';
+		// log_trace("cur_msg: %s", cur_msg);
 	}
 	cur_msg[bytes_read] = '\0';
-	// log_trace("cur_msg: %s", cur_msg);
+	log_trace("cur_msg: %s", cur_msg);
 
 	msg_idx++;
 
 	// TODO make a new buffer each time?
-	return cur_msg;
+	// read from cur_msg instead of directly returning, return error instead
+	return true;
 }
 
-bool process_turn_response(const char *response, struct game_context *ctx)
+bool get_turn_response(void)
 {
+	// for fixed header-sized messages, define this to be our message interface: {uint32_t len, message}
+
+	// wait until readable POLLIN
+	// if (poll(fds, 1, -1) < 1) {
+	// 	perror("poll error or not ready");
+	// 	return NULL;
+	// }
+	// if (fds[0].revents & POLLHUP) {
+	// 	fprintf(stderr, "poll hangup\n");
+	// 	return NULL;
+	// }
+
+	// // read size header, set up appropriately sized message buffer
+	// uint32_t len;
+	// if (recv(sock_fd, &len, sizeof(len), 0) != sizeof(len)) {
+	// 	perror("recv header len failed");
+	// 	return NULL;
+	// }
+	// fprintf(stderr, "received len: %u\n", len);
+
+	// // >= since we need to add an additional '\0'
+	// if (len >= cur_msg_max_size) {
+	// 	if ((cur_msg = realloc(cur_msg, len + 1)) == NULL) {
+	// 		fputs("failed to realloc message buffer", stderr);
+	// 		return NULL;
+	// 	}
+	// 	cur_msg_max_size = len + 1;
+	// }
+
+	// uint32_t bytes_read = 0;
+	// uint32_t bytes_remaining = len;
+	// while (bytes_remaining > 0) {
+	// 	if ((len = recv(sock_fd, cur_msg + bytes_read, bytes_remaining,
+	// 			0)) == -1) {
+	// 		perror("recv failed");
+	// 		return NULL;
+	// 	}
+	// 	bytes_read += len;
+	// 	bytes_remaining -= len;
+
+	// 	// print partial message:
+	// 	// cur_msg[bytes_read] = '\0';
+	// 	// log_trace("cur_msg: %s", cur_msg);
+	// }
+	// cur_msg[bytes_read] = '\0';
+	// log_trace("cur_msg: %s", cur_msg);
+
+	// msg_idx++;
+
+	// // TODO make a new buffer each time?
+	// return cur_msg;
+	return poll_turn_response(-1);
+}
+
+bool check_game_response(void)
+{
+	return poll_turn_response(0);
+}
+
+static bool response_is_map(const cJSON *response)
+{
+	if (!response)
+		return false;
+	cJSON *msg = cJSON_GetObjectItemCaseSensitive(response, "msg");
+	return msg && cJSON_IsString(msg) && msg->valuestring &&
+	       (strcmp(msg->valuestring, "map") == 0);
+}
+
+static bool update_map_from_json(struct game_context *ctx,
+				 const cJSON *response_json)
+{
+	log_trace("updating map");
+	// assumes json actually has map data, validate in process_turn_response()
 	bool ret = true;
-
-	cJSON *response_json = cJSON_Parse(response);
-
-	char *response_print = cJSON_Print(response_json);
-	log_trace("response json: %s", response_print);
 
 	// for now expect msg: map, cells: array of object with xys
 	const cJSON *cells =
@@ -209,7 +316,6 @@ bool process_turn_response(const char *response, struct game_context *ctx)
 		cJSON *cell_elem;
 		cJSON_ArrayForEach(cell_elem, cell)
 		{
-
 			if (strcmp(cell_elem->string, "x") == 0) {
 				if (!cJSON_IsNumber(cell_elem)) {
 					log_err("cell_elem x json element is not a number: %f, %s, %s",
@@ -219,6 +325,7 @@ bool process_turn_response(const char *response, struct game_context *ctx)
 					ret = false;
 					goto exit;
 				}
+
 				// TODO tile coord should be int?
 				tile_info.coord.x = (float)cell_elem->valueint;
 				has_x = true;
@@ -229,6 +336,7 @@ bool process_turn_response(const char *response, struct game_context *ctx)
 					ret = false;
 					goto exit;
 				}
+
 				tile_info.coord.y = (float)cell_elem->valueint;
 			} else if (strcmp(cell_elem->string, "mf") == 0) {
 				if (!cJSON_IsNumber(cell_elem)) {
@@ -238,22 +346,90 @@ bool process_turn_response(const char *response, struct game_context *ctx)
 					goto exit;
 				}
 				assert(cell_elem->valueint <= MF_MAX);
-				tile_info.type = mf_to_map_type[cell_elem->valueint];
+
+				tile_info.type =
+					mf_to_map_type[cell_elem->valueint];
 			}
 			// TODO: add remaining cells info
-
-
 		}
 		if (!has_x)
 			++tile_info.coord.x;
 
 		ctx->visible_map[cell_idx] = tile_info;
-		++cell_idx;
+		// ++cell_idx;
+		if (++cell_idx == MAX_MAP_VISIBLE)
+			break;
+	}
+	log_trace("num map sites loaded: %d", cell_idx);
+	// print_map_pos_info(ctx->visible_map, cell_idx);
+exit:
+	return ret;
+}
+
+bool process_turn_response(const char *response, struct game_context *ctx)
+{
+	// TODO: loop here since it may take several messages before a map is sent again
+
+	bool ret = true;
+
+	cJSON *response_json = cJSON_Parse(response);
+
+	// char *response_print = cJSON_Print(response_json);
+	// log_trace("response json: %s", response_print);
+	// free(response_print);
+
+	// TODO: see if another way if just checking, not using 'cells' here
+	// if (cJSON_GetObjectItemCaseSensitive(response_json, "cells")) {
+	if (response_is_map(response_json)) {
+		if (!update_map_from_json(ctx, response_json)) {
+			ret = false;
+			goto exit;
+		}
 	}
 
-	// not printing here...
-	print_map_pos_info(ctx->visible_map, cell_idx);
 exit:
 	cJSON_Delete(response_json);
 	return ret;
+}
+
+bool load_initial_map(struct game_context *ctx)
+{
+	// read until map is updated
+	bool map_updated = false;
+	bool res = true;
+	cJSON *response_json = NULL;
+	while (!map_updated) {
+		if (!cur_msg) {
+			res = get_turn_response();
+			if (!res)
+				goto exit;
+		}
+		cJSON_Delete(response_json);
+		response_json = cJSON_Parse(cur_msg);
+		if (!response_json) {
+			const char *error_ptr = cJSON_GetErrorPtr();
+			if (error_ptr)
+				log_err("cJSON error: %s", error_ptr);
+		}
+		// char *response_print = cJSON_Print(response_json);
+		// log_trace("response json: %s", response_print);
+		// free(response_print);
+		if (!response_is_map(response_json)) {
+			log_trace("current response is not a map");
+			res = get_turn_response();
+			if (!res)
+				goto exit;
+			continue;
+		}
+		res = update_map_from_json(ctx, response_json);
+		if (res) {
+			map_updated = true;
+			goto exit;
+		} else {
+			log_trace("update_map_from_json failed");
+		}
+	}
+exit:
+	cJSON_Delete(response_json);
+	return res;
 }

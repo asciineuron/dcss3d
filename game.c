@@ -97,7 +97,7 @@ check_displace_collide_map(const float pos_x, const float pos_y,
 	 *    XX
 	 */
 
-	log_trace("pos coords %f, %f", pos_x, pos_y);
+	// log_trace("pos coords %f, %f", pos_x, pos_y);
 
 	enum collide_dir collision = COLLIDE_NONE;
 	for (int i = 0; i < visible_map_size; i++) {
@@ -106,18 +106,18 @@ check_displace_collide_map(const float pos_x, const float pos_y,
 		if (visible_map[i].type != MTYPE_WALL)
 			continue;
 
-		log_trace("map coords for i: %d, x,y %f,%f", i,
-			  visible_map[i].coord.x, visible_map[i].coord.y);
+		//log_trace("map coords for i: %d, x,y %f,%f", i,
+		//	  visible_map[i].coord.x, visible_map[i].coord.y);
 
 		vec3 render_coords;
 		map_tile_to_render_coords(visible_map[i].coord, render_coords);
-		log_trace("render coords for i: %d, x,y %f,%f", i,
-			  render_coords[0], render_coords[1]);
+		//log_trace("render coords for i: %d, x,y %f,%f", i,
+		//	  render_coords[0], render_coords[1]);
 
 		vec4 bbox;
 		render_coords_llx_lly_urx_ury(render_coords, bbox);
-		log_trace("bbox for i: %d, %f,%f,%f,%f", i, bbox[0], bbox[1],
-			  bbox[2], bbox[3]);
+		//log_trace("bbox for i: %d, %f,%f,%f,%f", i, bbox[0], bbox[1],
+		//	  bbox[2], bbox[3]);
 
 		// enforce only W or E for single tile
 		float dist_from_center = fabsf(render_coords[1] - pos_y);
@@ -164,8 +164,8 @@ struct turn *update_player_pos(struct player *player, const double dt,
 	float y_disp = dt * dy;
 
 	// prevent displacement if colliding in direction of movement
-	log_trace("x_disp, y_disp: %f, %f, collide: %d", x_disp, y_disp,
-		  check_collide);
+	//log_trace("x_disp, y_disp: %f, %f, collide: %d", x_disp, y_disp,
+	//	  check_collide);
 
 	// sign flip here since -y map coords is into the screen
 	if (y_disp > 0.0f) {
@@ -194,7 +194,7 @@ struct turn *update_player_pos(struct player *player, const double dt,
 	int y_shift = player->pos_y - old_pos_y;
 	assert(abs(x_shift) <= 1); // -1, 0, +1
 	assert(abs(y_shift) <= 1);
-	log_trace("x_shift: %d, y_shift: %d", x_shift, y_shift);
+	//log_trace("x_shift: %d, y_shift: %d", x_shift, y_shift);
 
 	// translate shift into move, may emit turn if necessary
 	enum move_direction move = shift_to_move_dir[x_shift + 1][y_shift + 1];
@@ -203,6 +203,7 @@ struct turn *update_player_pos(struct player *player, const double dt,
 		// TODO: how to handle diagonal movement, two tile crosses very rapidly could annoy player
 		turn = malloc(sizeof(struct turn));
 		*turn = (struct turn){ .type = TURN_MOVE, .value.move = move };
+		log_trace("doing move turn: %d", move);
 	}
 
 	return turn;

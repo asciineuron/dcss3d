@@ -16,7 +16,7 @@
 bool done = false;
 
 // handle current state of logical keyboard (infrequent at key-poll rate, not per-frame)
-struct turn *process_key(SDL_KeyboardEvent *key_event,
+struct turn *process_key(const SDL_KeyboardEvent *key_event,
 			 struct game_context *game_ctx)
 {
 	struct turn *turn = NULL;
@@ -108,7 +108,7 @@ void process_frame_input(struct game_context *game_ctx)
 	update_player_view(game_ctx->player, mouse_dx, mouse_dy);
 }
 
-struct turn *process_event(SDL_Event *event, struct game_context *game_ctx)
+struct turn *process_event(const SDL_Event *event, struct game_context *game_ctx)
 {
 	struct turn *turn = NULL;
 	if (!event)
@@ -205,11 +205,16 @@ int main(int argc, char *argv[])
 	}
 
 	// dummy once here
-	memcpy(game_ctx.visible_map, dummy_visible_map,
-	       MAX_MAP_VISIBLE * sizeof(struct map_pos_info));
+	// memcpy(game_ctx.visible_map, dummy_visible_map,
+	//        MAX_MAP_VISIBLE * sizeof(struct map_pos_info));
 
-	struct turn init_turn = { .type = TURN_MOVE, .value.move = MOVE_N };
-	do_turn(&init_turn, &game_ctx);
+	// struct turn init_turn = { .type = TURN_MOVE, .value.move = MOVE_N };
+	// do_turn(&init_turn, &game_ctx);
+
+	if (!load_initial_map(&game_ctx)) {
+		log_err("unable to load initial map");
+		return EXIT_FAILURE;
+	}
 
 	while (!done) {
 		// update time
@@ -246,12 +251,24 @@ int main(int argc, char *argv[])
 			free_turn(turn);
 		}
 
+		// see if game has more data to send outside of a formal turn
+		// const char *game_response = check_game_response();
+		bool success = check_game_response();
+		const char *game_response = cur_msg;
+		if (!success) {
+			log_err("game response failure");
+			goto exit;
+		}
+		if (game_response)
+			process_turn_response(game_response, &game_ctx);
+
 		// render
 		if (!render_draw(&game_ctx)) {
 			log_err("render_draw failure");
+			goto exit;
 		}
 	}
-
+exit:
 	render_quit();
 	SDL_Quit();
 	return EXIT_SUCCESS;
