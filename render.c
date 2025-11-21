@@ -534,7 +534,8 @@ SDL_GPUGraphicsPipeline *create_graphics_pipeline(SDL_GPUDevice *device,
 			  rend_ctx.gpu_dev, rend_ctx.rend_info->window) }
 	};
 	SDL_GPURasterizerState rasterizer_state = {
-		.fill_mode = SDL_GPU_FILLMODE_FILL,
+		// .fill_mode = SDL_GPU_FILLMODE_FILL,
+		.fill_mode = SDL_GPU_FILLMODE_LINE,
 		.cull_mode = SDL_GPU_CULLMODE_FRONT
 	};
 	SDL_GPUGraphicsPipelineCreateInfo
@@ -641,6 +642,7 @@ bool render_init()
 	}
 
 	// load models and shaders etc etc
+	// TODO pipeline closely associated with individual buffers, bundle them?
 	rend_ctx.pipeline =
 		create_graphics_pipeline(rend_ctx.gpu_dev, MODEL_MAP);
 	if (!rend_ctx.pipeline) {
@@ -884,6 +886,7 @@ void render_quit()
 
 	SDL_ReleaseGPUTransferBuffer(rend_ctx.gpu_dev,
 				     rend_ctx.map_data_draw_trans_buf);
+	SDL_ReleaseGPUTransferBuffer(rend_ctx.gpu_dev, rend_ctx.map_data_pos_trans_buf)
 	SDL_ReleaseGPUBuffer(rend_ctx.gpu_dev, rend_ctx.map_data_buf);
 	SDL_ReleaseGPUBuffer(rend_ctx.gpu_dev, rend_ctx.vertex_buf);
 	SDL_ReleaseGPUBuffer(rend_ctx.gpu_dev, rend_ctx.index_buf);

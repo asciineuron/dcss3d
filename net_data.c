@@ -152,10 +152,12 @@ static bool poll_turn_response(int timeout)
 {
 	// for fixed header-sized messages, define this to be our message interface: {uint32_t len, message}
 	// wait until readable POLLIN
-	if (poll(fds, 1, timeout) < 0) {
+	int poll_res = poll(fds, 1, timeout);
+
+	if (poll_res < 0) {
 		perror("poll error");
 		return false;
-	} else if (poll(fds, 1, timeout) == 0) {
+	} else if (poll_res == 0) {
 		// TODO: refactor into a separate thread so we don't have to poll each game loop? not sure how expensive
 		// log_trace("no poll turn response");
 		return true;
