@@ -11,6 +11,7 @@
 #include <span>
 #include <string_view>
 #include <unordered_map>
+#include <mutex>
 #include <vector>
 #include <poll.h>
 

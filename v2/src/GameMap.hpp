@@ -57,6 +57,5 @@ private:
 glm::vec2 mapCoordToRender(const Pos2<int>& coord)
 {
     return { static_cast<float>(coord.x) + 0.5f,
-        static_cast<float>(coord.y)- 0.5f };
+        static_cast<float>(coord.y) - 0.5f };
 }
-

@@ -41,8 +41,10 @@ public:
 
     const Camera& camera() const { return m_camera; };
 
-    void updateView(const float mouse_dx, const float mouse_dy); // rotate camera
-    std::unique_ptr<Turn> updatePosition(const GameTime&, const GameMap&); // check collisions here, displace camera
+    // rotate camera:
+    void updateView(const float mouse_dx, const float mouse_dy); 
+    // check collisions here, displace camera:
+    std::unique_ptr<Turn> updatePosition(const GameTime&, const GameMap&); 
 
     void setVelX(float vel_x) { m_velX = vel_x; }
     void setVelY(float vel_y) { m_velY = vel_y; }

@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.30)
 project(dcss3d LANGUAGES CXX)
 
 add_executable(dcss3d)
-target_compile_features(dcss3d PUBLIC cxx_std_20)
+target_compile_features(dcss3d PUBLIC cxx_std_23)
 target_sources(dcss3d PRIVATE 
 	src/MessageQueue.hpp
 	src/MessageQueue.cpp

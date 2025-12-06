@@ -10,7 +10,7 @@ struct Camera {
     float fov { 0.785398f };
     float aspectRatio { 1.777777f };
 
-    glm::vec4 toViewProjection();
+    glm::mat4 toViewProjection() const;
 };
 
 struct Face {
@@ -33,6 +33,7 @@ private:
     std::vector<glm::vec2> m_uvs;
     std::vector<Face> m_faces;
     std::string m_name;
+    std::string m_resourcePath;
 
     void loadObj(std::string_view filename);
 };
@@ -129,7 +130,7 @@ class Renderer {
 public:
     Renderer();
     ~Renderer();
-    void doRender(const GameMap&, const Camera&);
+    void doRender(GameMap&, const Camera&);
 
     Renderer(Renderer&) = delete;
     Renderer(Renderer&&) = delete;
@@ -145,10 +146,9 @@ private:
     int m_windowWidth {};
     int m_windowHeight {};
 
-    std::string m_resourcePath;
     std::string m_shaderPath;
 
-    void pushMapToGPU(const GameMap&);
+    void pushMapToGPU(const GameMap&, SDL_GPUCommandBuffer*);
 
     static constexpr unsigned s_winW = 1920;
     static constexpr unsigned s_winH = 1080;
