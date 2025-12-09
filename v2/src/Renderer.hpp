@@ -1,7 +1,10 @@
 #pragma once
+#include "GameMap.hpp"
 #include <glm/glm.hpp>
 #include <SDL3/SDL.h>
 #include <iostream>
+#include <vector>
+#include <memory>
 
 struct Camera {
     glm::vec3 pos { 0.5f, 0.f, -0.5f };
@@ -49,7 +52,7 @@ struct ShaderParameters {
 // this base class can draw a single model at its designated position
 class BufferedModel {
 public:
-    BufferedModel(std::shared_ptr<SDL_GPUDevice>, std::unique_ptr<Model>,
+    BufferedModel(std::shared_ptr<SDL_GPUDevice>, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { "position.vert", 0, 1, 0, 0 },
         ShaderParameters fragment = { "color.frag", 0, 0, 0, 0 });
     ~BufferedModel();
@@ -72,15 +75,14 @@ private:
     Uint32 m_vertexBufSize;
     Uint32 m_indexBufSize;
     
-    SDL_GPUGraphicsPipeline* createGraphicsPipelineWithShaders(ShaderParameters vertex, ShaderParameters fragment);
+    SDL_GPUGraphicsPipeline* createGraphicsPipelineWithShaders(SDL_Window* window, ShaderParameters vertex, ShaderParameters fragment);
     void uploadModel();
 };
 
-class GameMap;
 // has special buffers to handle drawing the map model at each chosen index
 class MapDisplacedBufferedModel : public BufferedModel {
 public:
-    MapDisplacedBufferedModel(std::shared_ptr<SDL_GPUDevice>, std::unique_ptr<Model>,
+    MapDisplacedBufferedModel(std::shared_ptr<SDL_GPUDevice>, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { std::string_view("position_color_shifted.vert"), 0, 1, 1, 0 },
         ShaderParameters fragment = { std::string_view("vert_input_color.frag"), 0, 0, 0, 0 });
     ~MapDisplacedBufferedModel();
@@ -131,6 +133,8 @@ public:
     Renderer();
     ~Renderer();
     void doRender(GameMap&, const Camera&);
+
+    SDL_Window* window() { return m_window.get(); }
 
     Renderer(Renderer&) = delete;
     Renderer(Renderer&&) = delete;

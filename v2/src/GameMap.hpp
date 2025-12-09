@@ -2,6 +2,7 @@
 
 #include "MessageQueue.hpp"
 #include <glm/glm.hpp>
+#include <nlohmann/json.hpp>
 
 enum class MapType {
     Wall,
@@ -29,7 +30,24 @@ template <typename T>
 struct Pos2 {
     T x;
     T y;
+
+    //bool operator==(const Pos2& other) const { return x == other.x && y == other.y; }
+    auto operator<=>(const Pos2& other) const = default;
 };
+// TODO: ^replace with std tuple int to simplify, otherwise need to define custom hash function for unordered_map
+// nope, even std tuple doesn't define one...
+
+// either 1 define keyhash and keyequal structs
+// or 2 define const == operator and specialize std::hash for type, 2 is much better
+
+template<>
+struct std::hash<Pos2<int>> {
+	std::size_t operator()(const Pos2<int>& p) const
+	{
+		return std::hash<int>{}(p.x) ^ std::hash<int>{}(p.y);
+	}
+};
+
 
 // int or float?
 class GameMap : public MessageHandler {

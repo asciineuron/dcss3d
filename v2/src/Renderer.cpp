@@ -79,18 +79,18 @@ SDL_GPUShader* loadShader(SDL_GPUDevice* device, const ShaderParameters& paramet
     auto codeLen = fs::file_size(shaderPath);
     std::ifstream shaderFile(shaderPath);
     std::string code;
-    code.resize_and_overwrite(codeLen, [&](char* buf, std::size_t len) { shaderFile.read(buf, len); });
+    code.resize_and_overwrite(codeLen, [&](char* buf, std::size_t len) { shaderFile.read(buf, len); return shaderFile.gcount(); });
 
     SDL_GPUShaderCreateInfo shaderInfo = {
-        .code = (Uint8*)code.c_str(),
         .code_size = codeLen,
+        .code = (Uint8*)code.c_str(),
         .entrypoint = entrypoint,
         .format = format,
         .stage = stage,
         .num_samplers = parameters.samplerCount,
-        .num_uniform_buffers = parameters.uniformBufferCount,
+        .num_storage_textures = parameters.storageTextureCount,
         .num_storage_buffers = parameters.storageBufferCount,
-        .num_storage_textures = parameters.storageTextureCount
+        .num_uniform_buffers = parameters.uniformBufferCount,
     };
     SDL_GPUShader* shader = SDL_CreateGPUShader(device, &shaderInfo);
     if (!shader) {
@@ -116,7 +116,7 @@ Renderer::Renderer()
         throw std::runtime_error(std::format("SDL_CreateWindow failed: {}", SDL_GetError()));
     m_windowID = SDL_GetWindowID(m_window.get());
 
-    if (!SDL_GetWindowSize(m_window, &m_windowWidth, &m_windowWidth))
+    if (!SDL_GetWindowSize(m_window.get(), &m_windowWidth, &m_windowWidth))
         throw std::runtime_error(std::format("SDL_GetWindowSize error: {}", SDL_GetError()));
 
     m_GPUDevice = std::shared_ptr<SDL_GPUDevice>(
@@ -136,7 +136,7 @@ Renderer::Renderer()
             SDL_GPU_PRESENTMODE_VSYNC))
         throw std::runtime_error(std::format("SDL_SetGPUSwapchainParameters error: {}", SDL_GetError()));
 
-    m_mapCubeModel = std::make_unique<MapDisplacedBufferedModel>(m_GPUDevice, std::make_unique<Model>("cube1.obj"));
+    m_mapCubeModel = std::make_unique<MapDisplacedBufferedModel>(m_GPUDevice, m_window.get(), std::make_unique<Model>("cube1.obj"));
 }
 
 void Renderer::doRender(GameMap& map, const Camera& camera)
@@ -228,7 +228,7 @@ void Model::loadObj(std::string_view filename)
     }
 }
 
-BufferedModel::BufferedModel(std::shared_ptr<SDL_GPUDevice> gpu, std::unique_ptr<Model> model,
+BufferedModel::BufferedModel(std::shared_ptr<SDL_GPUDevice> gpu, SDL_Window* window, std::unique_ptr<Model> model,
     ShaderParameters vertex, ShaderParameters fragment)
     : m_model { std::move(model) }
     , m_GPUDevice { gpu }
@@ -236,7 +236,7 @@ BufferedModel::BufferedModel(std::shared_ptr<SDL_GPUDevice> gpu, std::unique_ptr
     , m_indexBufSize { static_cast<Uint16>(sizeof(Uint16) * 3 * m_model->faces().size()) }
     , m_drawBufSize { sizeof(SDL_GPUIndexedIndirectDrawCommand) * 1 }
 {
-    m_pipeline = createGraphicsPipelineWithShaders(vertex, fragment);
+    m_pipeline = createGraphicsPipelineWithShaders(window, vertex, fragment);
 
     // set up buffers next:
     SDL_GPUBufferCreateInfo vertexInfo = {
@@ -251,7 +251,7 @@ BufferedModel::BufferedModel(std::shared_ptr<SDL_GPUDevice> gpu, std::unique_ptr
         .usage = SDL_GPU_BUFFERUSAGE_INDIRECT,
         .size = m_drawBufSize
     };
-    SDL_GPUBufferCreateInfo drawTransferInfo = {
+    SDL_GPUTransferBufferCreateInfo drawTransferInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
         .size = (Uint32)sizeof(SDL_GPUIndexedIndirectDrawCommand)
     };
@@ -265,18 +265,21 @@ BufferedModel::BufferedModel(std::shared_ptr<SDL_GPUDevice> gpu, std::unique_ptr
 
 void BufferedModel::uploadModel()
 {
+	SDL_GPUTransferBufferCreateInfo tempVertexIndexTransferInfo = { .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = m_vertexBufSize + m_indexBufSize };
     SDL_GPUTransferBuffer* tempVertexIndexTransfer = SDL_CreateGPUTransferBuffer(
-        m_GPUDevice.get(), &(SDL_GPUTransferBufferCreateInfo) { .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = m_vertexBufSize + m_indexBufSize });
+        m_GPUDevice.get(), &tempVertexIndexTransferInfo);
     
     glm::vec3* vertexTransfer = (glm::vec3*)SDL_MapGPUTransferBuffer(m_GPUDevice.get(),
         tempVertexIndexTransfer, false);
+
     memcpy(vertexTransfer, m_model->vertices().data(),
         m_model->vertices().size() * sizeof(glm::vec3));
+
     Uint16* indexTransfer = (Uint16*)&vertexTransfer[m_model->vertices().size()];
-    for (int i = 0; i < model->faces().size(); i++) {
-        indexTransfer[3 * i] = model->faces[i].vertexIndices[0];
-        indexTransfer[3 * i + 1] = model->faces[i].vertexIndices[1];
-        indexTransfer[3 * i + 2] = model->faces[i].vertexIndices[2];
+    for (int i = 0; i < m_model->faces().size(); i++) {
+        indexTransfer[3 * i] = m_model->faces()[i].vertexIndices[0];
+        indexTransfer[3 * i + 1] = m_model->faces()[i].vertexIndices[1];
+        indexTransfer[3 * i + 2] = m_model->faces()[i].vertexIndices[2];
     }
     SDL_UnmapGPUTransferBuffer(m_GPUDevice.get(), tempVertexIndexTransfer);
 
@@ -284,7 +287,7 @@ void BufferedModel::uploadModel()
         m_GPUDevice.get(), m_drawTransferBuf, true);
     // TODO: for wall, have more num_instances
     drawTransfer[0] = (SDL_GPUIndexedIndirectDrawCommand) {
-        .num_indices = (Uint32)(3 * model->faces().size()),
+        .num_indices = (Uint32)(3 * m_model->faces().size()),
         .num_instances = 1,
         .first_index = 0,
         .vertex_offset = 0,
@@ -296,30 +299,27 @@ void BufferedModel::uploadModel()
     SDL_GPUCommandBuffer* cmdBuf = SDL_AcquireGPUCommandBuffer(m_GPUDevice.get());
     SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmdBuf);
 
+    SDL_GPUTransferBufferLocation tempVertexIndexTransferLocation = { .transfer_buffer = tempVertexIndexTransfer, .offset = 0 };
+    SDL_GPUBufferRegion tempVertexIndexTransferRegion = { .buffer = m_vertexBuffer, .offset = 0, .size = m_vertexBufSize };
     SDL_UploadToGPUBuffer(
         copyPass,
-        &(SDL_GPUTransferBufferLocation) { .transfer_buffer = tempVertexIndexTransfer,
-            .offset = 0 },
-        &(SDL_GPUBufferRegion) { .buffer = m_vertexBuffer,
-            .offset = 0,
-            .size = m_vertexBufSize },
-        false);
-    SDL_UploadToGPUBuffer(
-        copyPass,
-        &(SDL_GPUTransferBufferLocation) { .transfer_buffer = tempVertexIndexTransfer,
-            .offset = vertex_buf_size },
-        &(SDL_GPUBufferRegion) { .buffer = m_indexBuffer,
-            .offset = 0,
-            .size = m_indexBufSize },
+        &tempVertexIndexTransferLocation,
+        &tempVertexIndexTransferRegion,
         false);
 
+    SDL_GPUTransferBufferLocation drawTransferLocation = { .transfer_buffer = tempVertexIndexTransfer, .offset = m_vertexBufSize };
+    SDL_GPUBufferRegion drawTransferRegion = { .buffer = m_indexBuffer, .offset = 0, .size = m_indexBufSize };
+    SDL_UploadToGPUBuffer(
+        copyPass,
+        &drawTransferLocation,
+        &drawTransferRegion,
+        false);
+
+    SDL_GPUTransferBufferLocation drawBufferLocation = { .transfer_buffer = m_drawTransferBuf, .offset = 0 };
+    SDL_GPUBufferRegion drawBufferRegion = { .buffer = m_drawBuffer, .offset = 0, .size = m_drawBufSize };
     SDL_UploadToGPUBuffer(copyPass,
-        &(SDL_GPUTransferBufferLocation) {
-            .transfer_buffer = m_drawTransferBuf,
-            .offset = 0 },
-        &(SDL_GPUBufferRegion) { .buffer = m_drawBuffer,
-            .offset = 0,
-            .size = m_drawBufSize },
+        &drawBufferLocation,
+        &drawBufferRegion,
         false);
 
     SDL_EndGPUCopyPass(copyPass);
@@ -336,24 +336,23 @@ BufferedModel::~BufferedModel()
     SDL_ReleaseGPUTransferBuffer(m_GPUDevice.get(), m_drawTransferBuf);
 }
 
-MapDisplacedBufferedModel::MapDisplacedBufferedModel(std::shared_ptr<SDL_GPUDevice> gpu, std::unique_ptr<Model> model,
+MapDisplacedBufferedModel::MapDisplacedBufferedModel(std::shared_ptr<SDL_GPUDevice> gpu, SDL_Window* window, std::unique_ptr<Model> model,
     ShaderParameters vertex, ShaderParameters fragment)
-    : BufferedModel(gpu, model, vertex, fragment)
+    : BufferedModel(gpu, window, std::move(model), vertex, fragment)
 {
+	SDL_GPUBufferCreateInfo mapBufferCreateInfo = { .usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, .size = (Uint32)(s_maxRenderCopies * sizeof(DisplacementColorInfo)) };
     m_mapDataBuffer = SDL_CreateGPUBuffer(m_GPUDevice.get(),
-        &(SDL_GPUBufferCreateInfo) { .usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
-            .size = (Uint32)(s_maxRenderCopies * sizeof(DisplacementColorInfo)) });
+        &mapBufferCreateInfo);
 
+    SDL_GPUTransferBufferCreateInfo mapTransferCreateInfo = { .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = (Uint32)(s_maxRenderCopies * sizeof(DisplacementColorInfo)) };
     m_dataTransferBuf = SDL_CreateGPUTransferBuffer(m_GPUDevice.get(),
-        &(SDL_GPUTransferBufferCreateInfo) { .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-            .size = (Uint32)(s_maxRenderCopies * sizeof(DisplacementColorInfo)) });
-
+        &mapTransferCreateInfo);
 }
 
 void MapDisplacedBufferedModel::pushMapData(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
 {
     // displacement, color info:
-    DisplacementColorInfo* mappedDisplacementColor = SDL_MapGPUTransferBuffer(
+    DisplacementColorInfo* mappedDisplacementColor = (DisplacementColorInfo*)SDL_MapGPUTransferBuffer(
         m_GPUDevice.get(), m_dataTransferBuf, true);
     for (auto idx = 0; const auto& [mapCoord, tile] : map.map()) {
         glm::vec2 renderCoords2D = mapCoordToRender(mapCoord);
@@ -367,14 +366,11 @@ void MapDisplacedBufferedModel::pushMapData(const GameMap& map, SDL_GPUCommandBu
     SDL_UnmapGPUTransferBuffer(m_GPUDevice.get(), m_dataTransferBuf);
 
     SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmdBuf);
+    SDL_GPUTransferBufferLocation mapBufferLocation = { .transfer_buffer = m_dataTransferBuf, .offset = 0 };
+    SDL_GPUBufferRegion mapBufferRegion = { .buffer = m_mapDataBuffer, .offset = 0, .size = s_maxRenderCopies * sizeof(DisplacementColorInfo) };
     SDL_UploadToGPUBuffer(copyPass,
-        &(SDL_GPUTransferBufferLocation) {
-            .transfer_buffer = m_dataTransferBuf,
-            .offset = 0 },
-        &(SDL_GPUBufferRegion) {
-            .buffer = m_mapDataBuffer,
-            .offset = 0,
-            .size = s_maxRenderCopies * sizeof(DisplacementColorInfo) },
+        &mapBufferLocation,
+        &mapBufferRegion,
         true);
     SDL_EndGPUCopyPass(copyPass);
 
@@ -383,9 +379,9 @@ void MapDisplacedBufferedModel::pushMapData(const GameMap& map, SDL_GPUCommandBu
         m_GPUDevice.get(), m_drawTransferBuf, true);
 
     drawTransfer[0] = (SDL_GPUIndexedIndirectDrawCommand) {
-        .num_indices = (Uint32)(3 * m_model->faces.size()),
+        .num_indices = static_cast<Uint32>(3 * m_model->faces().size()),
         // NOTE setting num_instances:
-        .num_instances = map.map().size(),
+        .num_instances = static_cast<Uint32>(map.map().size()),
         .first_index = 0,
         .vertex_offset = 0,
         .first_instance = 0
@@ -393,15 +389,12 @@ void MapDisplacedBufferedModel::pushMapData(const GameMap& map, SDL_GPUCommandBu
     SDL_UnmapGPUTransferBuffer(m_GPUDevice.get(), m_drawTransferBuf);
 
     copyPass = SDL_BeginGPUCopyPass(cmdBuf);
+    SDL_GPUTransferBufferLocation drawBufferLocation = { .transfer_buffer = m_drawTransferBuf, .offset = 0 };
+    SDL_GPUBufferRegion drawBufferRegion = { .buffer = m_drawBuffer, .offset = 0, .size = m_drawBufSize };
     SDL_UploadToGPUBuffer(
         copyPass,
-        &(SDL_GPUTransferBufferLocation) {
-            .transfer_buffer = m_drawTransferBuf,
-            .offset = 0 },
-        &(SDL_GPUBufferRegion) {
-            .buffer = m_drawBuffer,
-            .offset = 0,
-            .size = m_drawBufSize },
+        &drawBufferLocation,
+        &drawBufferRegion,
         true);
     SDL_EndGPUCopyPass(copyPass);
 }
@@ -412,33 +405,34 @@ MapDisplacedBufferedModel::~MapDisplacedBufferedModel()
     SDL_ReleaseGPUTransferBuffer(m_GPUDevice.get(), m_dataTransferBuf);
 }
 
-SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(ShaderParameters vertex, ShaderParameters fragment)
+SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Window* window, ShaderParameters vertex, ShaderParameters fragment)
 {
     SDL_GPUShader* vertexShader = loadShader(m_GPUDevice.get(), vertex);
     SDL_GPUShader* fragShader = loadShader(m_GPUDevice.get(), fragment);
 
     SDL_GPUVertexAttribute vertexAttributes[] = {
-        { .buffer_slot = 0,
+        {   .location = 0,
+	    .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .location = 0,
             .offset = 0 }
     };
     SDL_GPUVertexBufferDescription vertexBufferDescriptions[] = {
         { .slot = 0,
+	.pitch = sizeof(glm::vec3),
             .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-            .instance_step_rate = 0,
-            .pitch = sizeof(vec3) }
+            .instance_step_rate = 0
+             }
     };
     // TODO add more vertex buffers here, one for map, one for each actor etc?
     SDL_GPUVertexInputState vertexInputState = {
-        .num_vertex_buffers = 1,
         .vertex_buffer_descriptions = vertexBufferDescriptions,
-        .num_vertex_attributes = 1,
+        .num_vertex_buffers = 1,
         .vertex_attributes = vertexAttributes,
+        .num_vertex_attributes = 1,
     };
     SDL_GPUColorTargetDescription colorTargetDescriptions[] = {
         { .format = SDL_GetGPUSwapchainTextureFormat(
-              rend_ctx.gpu_dev, rend_ctx.rend_info->window) }
+              m_GPUDevice.get(), window) }
     };
     SDL_GPURasterizerState rasterizer_state = {
         // .fill_mode = SDL_GPU_FILLMODE_FILL,
@@ -446,7 +440,7 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(Shader
         .cull_mode = SDL_GPU_CULLMODE_FRONT
     };
     SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {
-        .vertexShader = vertexShader,
+        .vertex_shader = vertexShader,
         .fragment_shader = fragShader,
         .vertex_input_state = vertexInputState,
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
@@ -457,7 +451,7 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(Shader
         }
     };
 
-    SDL_GPUGraphicsPipeline* pipeline = SDL_CreateGPUGraphicsPipeline(device, &pipelineInfo);
+    SDL_GPUGraphicsPipeline* pipeline = SDL_CreateGPUGraphicsPipeline(m_GPUDevice.get(), &pipelineInfo);
 
     SDL_ReleaseGPUShader(m_GPUDevice.get(), vertexShader);
     SDL_ReleaseGPUShader(m_GPUDevice.get(), fragShader);
@@ -465,19 +459,21 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(Shader
     return pipeline;
 }
 
-void BufferedModel::setupDraw(SDL_GPURenderPass*)
+void BufferedModel::setupDraw(SDL_GPURenderPass* renderPass)
 {
     // bind resources:
     SDL_BindGPUGraphicsPipeline(renderPass, m_pipeline);
     // vertices:
+    SDL_GPUBufferBinding vertexBufferBinding = { .buffer = m_vertexBuffer, .offset = 0 };
     SDL_BindGPUVertexBuffers(
         renderPass, 0,
-        &(SDL_GPUBufferBinding) { .buffer = m_vertexBuffer, .offset = 0 },
+        &vertexBufferBinding,
         1);
     // vertex index:
+    SDL_GPUBufferBinding indexBufferBinding = { .buffer = m_indexBuffer, .offset = 0 };
     SDL_BindGPUIndexBuffer(
         renderPass,
-        &(SDL_GPUBufferBinding) { .buffer = m_indexBuffer, .offset = 0 },
+        &indexBufferBinding,
         SDL_GPU_INDEXELEMENTSIZE_16BIT);
 }
 
@@ -486,7 +482,7 @@ void BufferedModel::draw(SDL_GPURenderPass* renderPass)
     // TODO not tested without map displacement...
     setupDraw(renderPass);
 
-    SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_mapCubeModel.drawBuffer().get(), 0, 1);
+    SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer, 0, 1);
 }
 
 void MapDisplacedBufferedModel::draw(SDL_GPURenderPass* renderPass)
@@ -497,5 +493,5 @@ void MapDisplacedBufferedModel::draw(SDL_GPURenderPass* renderPass)
     SDL_BindGPUVertexStorageBuffers(renderPass, 0,
         &(m_mapDataBuffer), 1);
 
-    SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_mapCubeModel.drawBuffer().get(), 0, 1);
+    SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer, 0, 1);
 }

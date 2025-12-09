@@ -23,7 +23,7 @@ endif()
 find_package(SDL3 REQUIRED)
 target_link_libraries(dcss3d PRIVATE SDL3::SDL3)
 
-find_package(nlohmann_json 3.12.0 REQUIRED)
+find_package(nlohmann_json 3.11.0 REQUIRED)
 target_link_libraries(dcss3d PRIVATE nlohmann_json::nlohmann_json)
 
 find_package(glm CONFIG REQUIRED)

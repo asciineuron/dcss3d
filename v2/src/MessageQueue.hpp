@@ -48,7 +48,7 @@ private:
 
 class GameResponseQueue {
 public:
-    void addHandler(std::span<std::string_view> messageTypes, std::shared_ptr<MessageHandler> handler);
+    void addHandler(std::vector<std::string> messageTypes, std::shared_ptr<MessageHandler> handler);
     void processMessages(std::span<json> messages); // run through available messages
 
 private:

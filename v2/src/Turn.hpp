@@ -8,6 +8,7 @@ using json = nlohmann::json;
 
 class Turn {
 public:
+virtual ~Turn() = default;
     virtual json asMessage() const = 0;
 };
 

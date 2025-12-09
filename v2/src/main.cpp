@@ -29,7 +29,7 @@ std::unique_ptr<Turn> process_key(SDL_Scancode key, Player& player, bool& isDone
     return nullptr;
 }
 
-std::unique_ptr<Turn> processInput(const SDL_Event& event, Player& player, bool& isDone)
+std::unique_ptr<Turn> processInput(const SDL_Event& event, Renderer& renderer, Player& player, bool& isDone)
 {
     switch (event.type) {
     case SDL_EVENT_QUIT:
@@ -40,12 +40,12 @@ std::unique_ptr<Turn> processInput(const SDL_Event& event, Player& player, bool&
         break;
     case SDL_EVENT_KEY_UP:
     case SDL_EVENT_KEY_DOWN:
-        return process_key(event.key.scancode, game_ctx);
+        return process_key(event.key.scancode, player, isDone);
     case SDL_EVENT_WINDOW_RESIZED:
         break;
     case SDL_EVENT_WINDOW_MOUSE_ENTER:
-        if (!SDL_SetWindowRelativeMouseMode(rend_info.window, true)) {
-            throw std::runtime_error("SDL_SetWindowRelativeMouseMode error: " + SDL_GetError());
+        if (!SDL_SetWindowRelativeMouseMode(renderer.window(), true)) {
+            throw std::runtime_error(std::format("SDL_SetWindowRelativeMouseMode error: {}", SDL_GetError()));
         }
     default:
         break;
@@ -73,7 +73,7 @@ int main(int argc, char* argv[])
     bool didFail = false;
     try {
         if (!SDL_Init(SDL_INIT_VIDEO)) {
-            throw std::runtime_error("SDL_Init failure: " + SDL_GetError());
+            throw std::runtime_error(std::format("SDL_Init failure: {}", SDL_GetError()));
         }
 
         auto player = std::make_shared<Player>();
@@ -83,10 +83,10 @@ int main(int argc, char* argv[])
         NetworkManager networkManager;
 
         GameResponseQueue responseQueue;
-        responseQueue.addHandler({ "map" }, player); // reset camera
-        responseQueue.addHandler({ "map" }, gameTime); // increment turn
-        responseQueue.addHandler({ "map" }, map); // update map data
-        // could add e.g. imgui overlay here to receive data as well, or logger
+        responseQueue.addHandler(std::vector<std::string> { "map" }, player); // reset camera
+        responseQueue.addHandler(std::vector<std::string> { "map" }, gameTime); // increment turn
+        responseQueue.addHandler(std::vector<std::string> { "map" }, map); // update map data
+        // could add e.g. imgui overlaarrat to receive data as well, or logger
 
         bool isDone = false;
         while (!isDone) {
@@ -101,22 +101,22 @@ int main(int argc, char* argv[])
             std::unique_ptr<Turn> turn;
             turn = player->updatePosition(*gameTime, *map);
             if (turn) {
-                networkManager->sendMessage(turn->asMessage());
+                networkManager.sendMessage(turn->asMessage());
                 continue; // re-render before handling potentially turn-generating input
             }
 
             // process mouse input separately from SDL_PollEvent to reduce overhead:
             turn = processMouseInput(*player);
             if (turn) {
-                networkManager->sendMessage(turn->asMessage());
+                networkManager.sendMessage(turn->asMessage());
                 continue;
             }
 
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
-                turn = processInput(event, *player, isDone);
+                turn = processInput(event, renderer, *player, isDone);
                 if (turn) {
-                    networkManager->sendMessage(turn->asMessage());
+                    networkManager.sendMessage(turn->asMessage());
                     break;
                 }
             }
