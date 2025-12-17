@@ -4,16 +4,16 @@
 #include <deque>
 #include <forward_list>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <optional>
-#include <string>
-#include <thread>
-#include <span>
-#include <string_view>
-#include <unordered_map>
-#include <mutex>
-#include <vector>
 #include <poll.h>
+#include <span>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <unordered_map>
+#include <vector>
 
 using json = nlohmann::json;
 
@@ -41,7 +41,7 @@ private:
     struct pollfd m_pollfd;
     std::atomic<bool> m_isPolling;
     std::thread m_pollThread;
-    std::vector<uint8_t> m_responseBuffer;
+    std::vector<char> m_responseBuffer;
 
     void pollLoop();
 };

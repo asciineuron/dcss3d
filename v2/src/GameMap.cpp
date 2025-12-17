@@ -25,14 +25,13 @@ void GameMap::handleMessage(const json& message)
 
 void GameMap::updateMap(const json& message)
 {
+    // TODO: implement this to properly load the map
     if (message.contains("clear") && message["clear"])
         m_map.clear();
     for (auto& cell : message["cells"]) {
         if (auto x = cell.find("x"); x != cell.end()) {
-
         }
         if (auto y = cell.find("y"); y != cell.end()) {
-            
         }
     }
 }

@@ -1,10 +1,10 @@
 #pragma once
 #include "GameMap.hpp"
-#include <glm/glm.hpp>
 #include <SDL3/SDL.h>
+#include <glm/glm.hpp>
 #include <iostream>
-#include <vector>
 #include <memory>
+#include <vector>
 
 struct Camera {
     glm::vec3 pos { 0.5f, 0.f, -0.5f };
@@ -74,7 +74,7 @@ private:
     SDL_GPUBuffer* m_indexBuffer {}; // ^ so don't need to store their temp transfer buffer here
     Uint32 m_vertexBufSize;
     Uint32 m_indexBufSize;
-    
+
     SDL_GPUGraphicsPipeline* createGraphicsPipelineWithShaders(SDL_Window* window, ShaderParameters vertex, ShaderParameters fragment);
     void uploadModel();
 };
@@ -103,29 +103,7 @@ private:
     static constexpr unsigned s_maxRenderCopies = 289; // 15^2 standard, 17^2 max, for Barachi
 };
 
-std::ostream&
-operator<<(std::ostream& os, const Model& model)
-{
-    os << "model: " << model.m_name << "\n";
-    os << "vertices: \n";
-    for (const auto& vertex : model.m_vertices) {
-        os << "( " << vertex.x
-           << " " << vertex.y
-           << " " << vertex.z << " )\n";
-    }
-    os << "uvs: \n";
-    for (const auto& uv : model.m_uvs) {
-        os << "( " << uv.x
-           << " " << uv.y << " )\n";
-    }
-    os << "face vertex indices: \n";
-    for (const auto& face : model.m_faces) {
-        os << "( " << face.vertexIndices[0]
-           << " " << face.vertexIndices[1]
-           << " " << face.vertexIndices[2] << " )\n";
-    }
-    return os;
-}
+std::ostream& operator<<(std::ostream& os, const Model& model);
 
 class GameMap;
 class Renderer {
@@ -149,8 +127,6 @@ private:
     SDL_WindowID m_windowID {};
     int m_windowWidth {};
     int m_windowHeight {};
-
-    std::string m_shaderPath;
 
     void pushMapToGPU(const GameMap&, SDL_GPUCommandBuffer*);
 

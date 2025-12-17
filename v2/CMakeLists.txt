@@ -7,6 +7,7 @@ target_sources(dcss3d PRIVATE
 	src/MessageQueue.hpp
 	src/MessageQueue.cpp
 	src/Turn.hpp 
+	src/Turn.cpp
 	src/GameMap.hpp
 	src/GameMap.cpp
 	src/PlayerState.hpp

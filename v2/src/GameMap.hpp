@@ -31,7 +31,7 @@ struct Pos2 {
     T x;
     T y;
 
-    //bool operator==(const Pos2& other) const { return x == other.x && y == other.y; }
+    // bool operator==(const Pos2& other) const { return x == other.x && y == other.y; }
     auto operator<=>(const Pos2& other) const = default;
 };
 // TODO: ^replace with std tuple int to simplify, otherwise need to define custom hash function for unordered_map
@@ -40,14 +40,15 @@ struct Pos2 {
 // either 1 define keyhash and keyequal structs
 // or 2 define const == operator and specialize std::hash for type, 2 is much better
 
-template<>
+namespace std {
+template <>
 struct std::hash<Pos2<int>> {
-	std::size_t operator()(const Pos2<int>& p) const
-	{
-		return std::hash<int>{}(p.x) ^ std::hash<int>{}(p.y);
-	}
+    std::size_t operator()(const Pos2<int>& p) const
+    {
+        return std::hash<int> {}(p.x) ^ std::hash<int> {}(p.y);
+    }
 };
-
+};
 
 // int or float?
 class GameMap : public MessageHandler {
@@ -72,7 +73,7 @@ private:
 };
 
 // takes map index and converts to its *center* in render coords
-glm::vec2 mapCoordToRender(const Pos2<int>& coord)
+inline glm::vec2 mapCoordToRender(const Pos2<int>& coord)
 {
     return { static_cast<float>(coord.x) + 0.5f,
         static_cast<float>(coord.y) - 0.5f };

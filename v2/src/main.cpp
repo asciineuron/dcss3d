@@ -1,3 +1,4 @@
+#include "MessageQueue.hpp"
 #include "PlayerState.hpp"
 #include "Renderer.hpp"
 #include "Turn.hpp"
@@ -16,16 +17,24 @@ std::unique_ptr<Turn> process_key(SDL_Scancode key, Player& player, bool& isDone
     if (key & SDL_SCANCODE_LSHIFT)
         velocity *= 2.0f;
 
-    if (key & SDL_SCANCODE_W)
+    switch (key) {
+    case SDL_SCANCODE_W:
         player.setVelY(velocity);
-    if (key & SDL_SCANCODE_A)
-        player.setVelY(-velocity);
-    if (key & SDL_SCANCODE_S)
+        break;
+    case SDL_SCANCODE_S:
+        player.setVelY(velocity);
+        break;
+    case SDL_SCANCODE_A:
         player.setVelX(-velocity);
-    if (key & SDL_SCANCODE_D)
+        break;
+    case SDL_SCANCODE_D:
         player.setVelX(velocity);
-    if (key & SDL_SCANCODE_SPACE)
+        break;
+    case SDL_SCANCODE_SPACE:
         return std::make_unique<MoveTurn>(Here);
+    default:
+        break;
+    }
     return nullptr;
 }
 

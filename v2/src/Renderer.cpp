@@ -49,10 +49,10 @@ SDL_GPUShader* loadShader(SDL_GPUDevice* device, const ShaderParameters& paramet
     SDL_GPUShaderStage stage;
     if (parameters.filename.contains(".vert")) {
         stage = SDL_GPU_SHADERSTAGE_VERTEX;
-    } else if (parameters.filename.contains(".vert")) {
+    } else if (parameters.filename.contains(".frag")) {
         stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
     } else {
-        throw std::runtime_error("invalid shader extension");
+        throw std::runtime_error(std::format("invalid shader extension for {}", parameters.filename));
     }
 
     SDL_GPUShaderFormat backendFormats = SDL_GetGPUShaderFormats(device);
@@ -74,7 +74,8 @@ SDL_GPUShader* loadShader(SDL_GPUDevice* device, const ShaderParameters& paramet
     } else {
         throw std::runtime_error("unrecognized backend shader format");
     }
-    std::string shaderPath = std::format("{}{}", parameters.filename, extension);
+
+    std::string shaderPath = std::format("{}shaders/{}{}", SDL_GetBasePath(), parameters.filename, extension);
 
     auto codeLen = fs::file_size(shaderPath);
     std::ifstream shaderFile(shaderPath);
@@ -101,9 +102,6 @@ SDL_GPUShader* loadShader(SDL_GPUDevice* device, const ShaderParameters& paramet
 
 Renderer::Renderer()
 {
-    // TODO add '/' ?
-    m_shaderPath = std::format("{}{}", SDL_GetBasePath(), "shaders");
-
     float displayScale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
     SDL_WindowFlags windowFlags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 
@@ -265,10 +263,10 @@ BufferedModel::BufferedModel(std::shared_ptr<SDL_GPUDevice> gpu, SDL_Window* win
 
 void BufferedModel::uploadModel()
 {
-	SDL_GPUTransferBufferCreateInfo tempVertexIndexTransferInfo = { .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = m_vertexBufSize + m_indexBufSize };
+    SDL_GPUTransferBufferCreateInfo tempVertexIndexTransferInfo = { .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, .size = m_vertexBufSize + m_indexBufSize };
     SDL_GPUTransferBuffer* tempVertexIndexTransfer = SDL_CreateGPUTransferBuffer(
         m_GPUDevice.get(), &tempVertexIndexTransferInfo);
-    
+
     glm::vec3* vertexTransfer = (glm::vec3*)SDL_MapGPUTransferBuffer(m_GPUDevice.get(),
         tempVertexIndexTransfer, false);
 
@@ -340,7 +338,7 @@ MapDisplacedBufferedModel::MapDisplacedBufferedModel(std::shared_ptr<SDL_GPUDevi
     ShaderParameters vertex, ShaderParameters fragment)
     : BufferedModel(gpu, window, std::move(model), vertex, fragment)
 {
-	SDL_GPUBufferCreateInfo mapBufferCreateInfo = { .usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, .size = (Uint32)(s_maxRenderCopies * sizeof(DisplacementColorInfo)) };
+    SDL_GPUBufferCreateInfo mapBufferCreateInfo = { .usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ, .size = (Uint32)(s_maxRenderCopies * sizeof(DisplacementColorInfo)) };
     m_mapDataBuffer = SDL_CreateGPUBuffer(m_GPUDevice.get(),
         &mapBufferCreateInfo);
 
@@ -411,17 +409,16 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
     SDL_GPUShader* fragShader = loadShader(m_GPUDevice.get(), fragment);
 
     SDL_GPUVertexAttribute vertexAttributes[] = {
-        {   .location = 0,
-	    .buffer_slot = 0,
+        { .location = 0,
+            .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
             .offset = 0 }
     };
     SDL_GPUVertexBufferDescription vertexBufferDescriptions[] = {
         { .slot = 0,
-	.pitch = sizeof(glm::vec3),
+            .pitch = sizeof(glm::vec3),
             .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-            .instance_step_rate = 0
-             }
+            .instance_step_rate = 0 }
     };
     // TODO add more vertex buffers here, one for map, one for each actor etc?
     SDL_GPUVertexInputState vertexInputState = {
@@ -494,4 +491,28 @@ void MapDisplacedBufferedModel::draw(SDL_GPURenderPass* renderPass)
         &(m_mapDataBuffer), 1);
 
     SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer, 0, 1);
+}
+
+std::ostream&
+operator<<(std::ostream& os, const Model& model)
+{
+    os << "model: " << model.m_name << "\n";
+    os << "vertices: \n";
+    for (const auto& vertex : model.m_vertices) {
+        os << "( " << vertex.x
+           << " " << vertex.y
+           << " " << vertex.z << " )\n";
+    }
+    os << "uvs: \n";
+    for (const auto& uv : model.m_uvs) {
+        os << "( " << uv.x
+           << " " << uv.y << " )\n";
+    }
+    os << "face vertex indices: \n";
+    for (const auto& face : model.m_faces) {
+        os << "( " << face.vertexIndices[0]
+           << " " << face.vertexIndices[1]
+           << " " << face.vertexIndices[2] << " )\n";
+    }
+    return os;
 }

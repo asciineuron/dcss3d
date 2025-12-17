@@ -5,6 +5,7 @@
 #include <format>
 #include <functional>
 #include <future>
+#include <iostream>
 #include <stdexcept>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -30,6 +31,19 @@ void GameResponseQueue::processMessages(std::span<json> messages)
         result.wait();
 }
 
+// template <typename T>
+// bool ownerEquals(const std::weak_ptr<T>& a, const std::weak_ptr<T>&b)
+//{
+//	return !a.owner_before(b) && !b.owner_before(a);
+// }
+
+void GameResponseQueue::addHandler(std::vector<std::string> messageTypes, std::shared_ptr<MessageHandler> handler)
+{
+    for (const auto& message : messageTypes) {
+        m_listeners[message].push_back(handler);
+    }
+}
+
 NetworkManager::NetworkManager(std::string_view socketPath)
     : m_isPolling { false }
     , m_socketPath { socketPath }
@@ -42,7 +56,7 @@ NetworkManager::NetworkManager(std::string_view socketPath)
     strcpy(remote.sun_path, m_socketPath.c_str());
 
     if (connect(m_sockfd, (struct sockaddr*)&remote, sizeof(struct sockaddr_un)) == -1) {
-        throw std::runtime_error(std::format("socket connect failure: {}", std::strerror(errno)));
+        throw std::runtime_error(std::format("socket connect failure for socket path {}: {}", socketPath, std::strerror(errno)));
     }
 
     m_pollfd = { .fd = m_sockfd, .events = POLLIN };
@@ -79,8 +93,10 @@ void NetworkManager::sendMessage(const json& message)
 }
 
 // convert input message into a list of json msg dicts
-std::vector<json> parseResponseMessages(std::span<const uint8_t> response)
+std::vector<json> parseResponseMessages(std::span<const char> response)
 {
+    std::string asString(response.begin(), response.end());
+    std::cout << "response as string: " << asString << "\n";
     std::vector<json> messageList;
     json responseMessages = json::parse(response.begin(), response.end());
     for (auto& msg : responseMessages["msgs"].items()) {
@@ -112,22 +128,27 @@ void NetworkManager::pollLoop()
             m_isPolling = false;
             throw std::runtime_error(std::format("recv failure: {}", std::strerror(errno)));
         }
+        std::cerr << "got response length: " << responseLength << "\n";
 
-        if (responseLength > m_responseBuffer.size()) {
-            m_responseBuffer.reserve(responseLength); // don't need +1 for \0 since constructed to string
-        }
+        // need to clear old trailing message or potentially resize:
+        m_responseBuffer.assign(responseLength, 0);
 
         uint32_t bytesRead = 0;
         uint32_t bytesLeft = responseLength;
         uint32_t currentBytes = 0;
         while (bytesLeft > 0) {
-            if ((currentBytes = recv(m_sockfd, m_responseBuffer.data() + bytesRead, bytesLeft, 0)) == -1) {
+            if ((currentBytes = recv(m_sockfd, &m_responseBuffer[bytesRead], bytesLeft, 0)) == -1) {
                 m_isPolling = false;
                 throw std::runtime_error(std::format("recv failure: {}", std::strerror(errno)));
             }
             bytesRead += currentBytes;
             bytesLeft -= currentBytes;
+            std::cerr << "just read " << currentBytes << " bytes of data\n";
         }
+        std::cerr << "DEBUG: buffer data: " << std::format("{}", m_responseBuffer) << "\n";
+
+        if (m_responseBuffer.size() == 0)
+            continue;
 
         std::vector<json> messages = parseResponseMessages(m_responseBuffer);
 

@@ -22,7 +22,7 @@ from websockets.exceptions import (
 logger = logging.getLogger(__name__)
 
 HOST, PORT = "localhost", 8080
-SOCKET = "./build/sdlproj1.sock"
+SOCKET = "./build/dcss3d.sock"
 
 USERNAME = "asciineuron"
 PASSWORD = "password"
@@ -256,6 +256,7 @@ class DCSSUnixStreamHandler(socketserver.StreamRequestHandler):
 
                 # check for game messages
                 for game_message in dcss_client.messages(as_string=True, timeout=0):
+                    logger.debug(f"sending message to client: {game_message}")
                     encoded_msg = len_encode_msg(game_message)
                     self.wfile.write(encoded_msg)
 
