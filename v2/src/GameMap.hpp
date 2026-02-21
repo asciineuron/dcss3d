@@ -15,7 +15,7 @@ enum class MapType {
 // TODO contain both base floor type and wall? e.g. if we clear a wall need to know floor type underneath
 class Tile {
 public:
-    Tile(MapType type)
+    Tile(MapType type = MapType::Other)
         : m_type(type)
     {
     }
@@ -65,6 +65,8 @@ public:
     // check if rendered since last handleMessage() potential update:
     const bool didRender() const { return m_didRender; };
     void setDidRender(bool didRender) { m_didRender = didRender; };
+
+    friend std::ostream& operator<<(std::ostream&, const GameMap&);
 
 private:
     MapData m_map;

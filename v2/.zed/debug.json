@@ -1,0 +1,9 @@
+[
+  {
+    "label": "debug dcss3d",
+    "program": "$ZED_WORKTREE_ROOT/build/dcss3d",
+    "cwd": "$ZED_WORKTREE_ROOT/build",
+    "request": "launch",
+    "adapter": "CodeLLDB",
+  },
+]

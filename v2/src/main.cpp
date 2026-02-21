@@ -2,27 +2,44 @@
 #include "PlayerState.hpp"
 #include "Renderer.hpp"
 #include "Turn.hpp"
+#include "imgui.h"
+#include "imgui_impl_sdl3.h"
+#include "imgui_impl_sdlgpu3.h"
+#include "imguilayouts.hpp"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <memory>
+#include <print>
+#include <signal.h>
+#include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <string>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <unordered_map>
 
-std::unique_ptr<Turn> process_key(SDL_Scancode key, Player& player, bool& isDone)
+// todo multiple keys at once? C version kept track separate from input
+std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, bool& isDone)
 {
     // TODO prevent diagonal speedup
 
     float velocity = 1.0f;
-    if (key & SDL_SCANCODE_LSHIFT)
+    if (key.type == SDL_EVENT_KEY_UP)
+        velocity = 0.0f; // reset movement when key released
+
+    if (key.mod == SDL_KMOD_LSHIFT)
         velocity *= 2.0f;
 
-    switch (key) {
+    switch (key.scancode) {
     case SDL_SCANCODE_W:
         player.setVelY(velocity);
         break;
     case SDL_SCANCODE_S:
-        player.setVelY(velocity);
+        player.setVelY(-velocity);
         break;
     case SDL_SCANCODE_A:
         player.setVelX(-velocity);
@@ -32,6 +49,11 @@ std::unique_ptr<Turn> process_key(SDL_Scancode key, Player& player, bool& isDone
         break;
     case SDL_SCANCODE_SPACE:
         return std::make_unique<MoveTurn>(Here);
+        break;
+    case SDL_SCANCODE_Q:
+        spdlog::debug("received q key");
+        isDone = true;
+        break;
     default:
         break;
     }
@@ -49,7 +71,7 @@ std::unique_ptr<Turn> processInput(const SDL_Event& event, Renderer& renderer, P
         break;
     case SDL_EVENT_KEY_UP:
     case SDL_EVENT_KEY_DOWN:
-        return process_key(event.key.scancode, player, isDone);
+        return process_key(event.key, player, isDone);
     case SDL_EVENT_WINDOW_RESIZED:
         break;
     case SDL_EVENT_WINDOW_MOUSE_ENTER:
@@ -72,69 +94,115 @@ std::unique_ptr<Turn> processMouseInput(Player& player)
     if (mouseState & SDL_BUTTON_LMASK) {
         // generate attack turn
         // TODO: how to interact with imgui? and suppress if UI overlay active
-        std::cerr << "left mouse clicked\n";
+        spdlog::debug("left mouse clicked");
     }
     return nullptr;
 }
 
+constexpr uint32_t FRAMERATE_MS = (1.0f / 60.0f) * 1000.0f;
+
+pid_t runRelayServer()
+{
+    const std::string scriptPath = std::format("{}dcss_server.py", SDL_GetBasePath());
+    spdlog::debug("script path: '{}'", scriptPath);
+
+    pid_t pid;
+    if (!(pid = fork())) {
+        // child
+        if (execlp(scriptPath.c_str(), scriptPath.c_str(), (char*)NULL) == -1) {
+            throw std::runtime_error(std::format("exec error: {}", strerror(errno)));
+        }
+    }
+    return pid;
+}
+
+void stopRelayServer(pid_t child)
+{
+    kill(child, SIGINT);
+    waitpid(child, nullptr, 0);
+}
+
 int main(int argc, char* argv[])
 {
+    pid_t relayPID = runRelayServer();
+
+    spdlog::set_level(spdlog::level::debug);
+
     bool didFail = false;
     try {
-        if (!SDL_Init(SDL_INIT_VIDEO)) {
-            throw std::runtime_error(std::format("SDL_Init failure: {}", SDL_GetError()));
-        }
+        Player player;
+        GameTime gameTime;
+        GameMap map;
+        Renderer renderer; // imgui + SDL setup too
+        NetworkManager networkManager(std::format("{}dcss3d.sock", SDL_GetBasePath()));
+        ImGuiIO& io = ImGui::GetIO();
+        // could add e.g. logger
 
-        auto player = std::make_shared<Player>();
-        auto gameTime = std::make_shared<GameTime>();
-        auto map = std::make_shared<GameMap>();
-        Renderer renderer;
-        NetworkManager networkManager;
-
-        GameResponseQueue responseQueue;
-        responseQueue.addHandler(std::vector<std::string> { "map" }, player); // reset camera
-        responseQueue.addHandler(std::vector<std::string> { "map" }, gameTime); // increment turn
-        responseQueue.addHandler(std::vector<std::string> { "map" }, map); // update map data
-        // could add e.g. imgui overlaarrat to receive data as well, or logger
+        handlerConfig responseHandlers = { { "map", { player, gameTime, map } } };
 
         bool isDone = false;
         while (!isDone) {
             std::vector<json> responses = networkManager.getNewMessages();
             if (!responses.empty())
-                responseQueue.processMessages(responses);
+                processMessages(responseHandlers, responses);
 
-            renderer.doRender(*map, player->camera());
+            ImGui_ImplSDLGPU3_NewFrame();
+            ImGui_ImplSDL3_NewFrame();
+            ImGui::NewFrame();
 
-            gameTime->update();
+            // imgui functions here
+            ImGui::ShowDemoWindow();
+            displayPlayer(player);
+            displayMap(map);
+            toggleCollision();
+
+            ImGui::Render();
+
+            renderer.doRender(map, player.camera()); // imgui layout too
+
+            gameTime.update();
 
             std::unique_ptr<Turn> turn;
-            turn = player->updatePosition(*gameTime, *map);
+            turn = player.updatePosition(gameTime, map);
             if (turn) {
+                spdlog::debug("generated turn: {}", turn->asMessage().dump());
                 networkManager.sendMessage(turn->asMessage());
                 continue; // re-render before handling potentially turn-generating input
+                // TODO ^ this continue is why infinite loop, each render updatePosition updates the position so never gets to mouse or keyboard input...
             }
 
             // process mouse input separately from SDL_PollEvent to reduce overhead:
-            turn = processMouseInput(*player);
+            turn = nullptr;
+            if (!io.WantCaptureMouse)
+                turn = processMouseInput(player);
             if (turn) {
+                spdlog::debug("generated turn: {}", turn->asMessage().dump());
                 networkManager.sendMessage(turn->asMessage());
                 continue;
             }
 
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
-                turn = processInput(event, renderer, *player, isDone);
-                if (turn) {
-                    networkManager.sendMessage(turn->asMessage());
-                    break;
+                ImGui_ImplSDL3_ProcessEvent(&event);
+                if (!(io.WantCaptureMouse || io.WantCaptureKeyboard)) {
+                    turn = processInput(event, renderer, player, isDone);
+                    if (turn) {
+                        spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                        networkManager.sendMessage(turn->asMessage());
+                        break;
+                    }
                 }
             }
+
+            // wait for 60fps
+            SDL_Delay(FRAMERATE_MS - (1000.0f * gameTime.dt()));
         }
     } catch (const std::runtime_error& e) {
-        std::cerr << "Received unhandled exception: " << e.what() << "\n";
+        spdlog::error("Received unhandled exception: {}", e.what());
         didFail = true;
     }
 
-    SDL_Quit();
+    stopRelayServer(relayPID);
+
     return didFail ? EXIT_FAILURE : EXIT_SUCCESS;
 }

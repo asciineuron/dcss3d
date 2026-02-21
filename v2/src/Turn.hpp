@@ -12,17 +12,6 @@ public:
     virtual json asMessage() const = 0;
 };
 
-// enum class Direction {
-//     North,
-//     East,
-//     South,
-//     West,
-//     NorthEast,
-//     SouthEast,
-//     SouthWest,
-//     NorthWest,
-//     Here, // '.' key, wait
-// };
 enum Direction {
     None = 0,
     North = 1 << 0,
@@ -33,8 +22,11 @@ enum Direction {
     SouthEast = (1 << 1) + (1 << 2),
     SouthWest = (1 << 2) + (1 << 3),
     NorthWest = (1 << 0) + (1 << 3),
-    Here = 1 << 4 // '.' key, wait
+    Here = 1 << 4, // '.' key, wait
+    DirectionSize
 };
+
+extern const char* directionToString[DirectionSize];
 
 class MoveTurn : public Turn {
 public:

@@ -1,6 +1,19 @@
 #include "Turn.hpp"
 #include <iostream>
 
+const char* directionToString[DirectionSize] = {
+    "None",
+    "North",
+    "East",
+    "South",
+    "West",
+    "NorthEast",
+    "SouthEast",
+    "SouthWest",
+    "NorthWest",
+    "Here"
+};
+
 MoveTurn::MoveTurn(Direction direction)
     : m_direction { direction }
 {
@@ -22,6 +35,21 @@ json MoveTurn::asMessage() const
         break;
     case West:
         dir_val = "4";
+        break;
+    case NorthWest:
+        dir_val = "7";
+        break;
+    case NorthEast:
+        dir_val = "9";
+        break;
+    case SouthWest:
+        dir_val = "1";
+        break;
+    case SouthEast:
+        dir_val = "3";
+        break;
+    case Here:
+        dir_val = ".";
         break;
     default:
         throw std::logic_error("invalid direction specified");

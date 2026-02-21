@@ -3,9 +3,9 @@
 #include <errno.h>
 #include <filesystem>
 #include <format>
-#include <functional>
 #include <future>
 #include <iostream>
+#include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -13,35 +13,23 @@
 
 namespace fs = std::filesystem;
 
-void GameResponseQueue::processMessages(std::span<json> messages)
+void processMessages(handlerConfig& config, std::span<json> messages)
 {
     // for each message loop listeners, async() their handleMessage() implementations if they respond to this message type
     std::vector<std::future<void>> results;
+
     for (const json& message : messages) {
-        if (!m_listeners.contains(message["msg"]))
+        if (!config.contains(message["msg"]))
             continue;
-        for (auto handlerPtr : m_listeners.at(message["msg"])) {
-            // if weak ptr still active:
-            if (auto handler = handlerPtr.lock()) {
-                results.push_back(std::async(&MessageHandler::handleMessage, handler.get(), message));
-            }
+
+        spdlog::debug("processing message: {}", message.dump());
+        for (auto handler : config.at(message["msg"])) {
+            results.push_back(std::async(&MessageHandler::handleMessage, handler, message));
         }
     }
+
     for (auto& result : results)
         result.wait();
-}
-
-// template <typename T>
-// bool ownerEquals(const std::weak_ptr<T>& a, const std::weak_ptr<T>&b)
-//{
-//	return !a.owner_before(b) && !b.owner_before(a);
-// }
-
-void GameResponseQueue::addHandler(std::vector<std::string> messageTypes, std::shared_ptr<MessageHandler> handler)
-{
-    for (const auto& message : messageTypes) {
-        m_listeners[message].push_back(handler);
-    }
 }
 
 NetworkManager::NetworkManager(std::string_view socketPath)
@@ -54,12 +42,16 @@ NetworkManager::NetworkManager(std::string_view socketPath)
 
     struct sockaddr_un remote = { .sun_family = PF_LOCAL };
     strcpy(remote.sun_path, m_socketPath.c_str());
+    spdlog::debug("socket path: '{}'", m_socketPath);
 
     if (connect(m_sockfd, (struct sockaddr*)&remote, sizeof(struct sockaddr_un)) == -1) {
         throw std::runtime_error(std::format("socket connect failure for socket path {}: {}", socketPath, std::strerror(errno)));
     }
 
-    m_pollfd = { .fd = m_sockfd, .events = POLLIN };
+    pipe(m_pipeCancel);
+
+    m_pollfds[0] = { .fd = m_sockfd, .events = POLLIN };
+    m_pollfds[1] = { .fd = m_pipeCancel[0], .events = POLLIN };
 
     m_pollThread = std::thread(&NetworkManager::pollLoop, this);
 }
@@ -67,6 +59,7 @@ NetworkManager::NetworkManager(std::string_view socketPath)
 NetworkManager::~NetworkManager()
 {
     m_isPolling = false;
+    write(m_pipeCancel[1], ".", 1);
     m_pollThread.join();
     fs::remove(m_socketPath);
 }
@@ -75,6 +68,7 @@ void NetworkManager::sendMessage(const json& message)
 {
     std::string messageString = message.dump();
     uint32_t messageLength = static_cast<uint32_t>(messageString.length());
+    spdlog::debug("sending message '{}'", messageString);
 
     if (send(m_sockfd, &messageLength, sizeof(messageLength), 0) != sizeof(messageLength))
         throw std::runtime_error(std::format("send failure: {}", std::strerror(errno)));
@@ -95,13 +89,25 @@ void NetworkManager::sendMessage(const json& message)
 // convert input message into a list of json msg dicts
 std::vector<json> parseResponseMessages(std::span<const char> response)
 {
-    std::string asString(response.begin(), response.end());
-    std::cout << "response as string: " << asString << "\n";
+    // std::string asString(response.begin(), response.end());
+    // std::cout << "response as string: " << asString << "\n";
     std::vector<json> messageList;
     json responseMessages = json::parse(response.begin(), response.end());
-    for (auto& msg : responseMessages["msgs"].items()) {
-        messageList.push_back(std::move(msg));
+    // std::cout << "responseMessages: " << responseMessages << std::endl;
+    if (responseMessages.contains("msgs")) {
+        // message list
+        for (auto& msg : responseMessages["msgs"].items()) {
+            messageList.push_back(std::move(msg));
+        }
+    } else if (responseMessages.contains("msg")) {
+        // single message
+        messageList.push_back(std::move(responseMessages));
     }
+
+    // spdlog::debug("parseResponseMessages() messageList:");
+    // for (const auto& message : messageList) {
+    //     spdlog::debug("{}", message.dump());
+    // }
     return messageList;
 }
 
@@ -112,13 +118,20 @@ void NetworkManager::pollLoop()
         return;
     m_isPolling = true;
     while (m_isPolling) {
-        int numEvents = poll(&m_pollfd, 1, -1);
+        int numEvents = poll(&m_pollfds[0], 2, -1);
+
         if (numEvents <= 0) {
             m_isPolling = false;
             throw std::runtime_error(std::format("poll failure: {}", std::strerror(errno)));
         }
 
-        if (m_pollfd.revents & POLLHUP) {
+        if (m_pollfds[1].revents & POLLIN) {
+            spdlog::debug("received quit message from pipe");
+            m_isPolling = false;
+            break;
+        }
+
+        if (m_pollfds[0].revents & POLLHUP) {
             m_isPolling = false;
             throw std::runtime_error("socket hangup");
         }
@@ -128,7 +141,7 @@ void NetworkManager::pollLoop()
             m_isPolling = false;
             throw std::runtime_error(std::format("recv failure: {}", std::strerror(errno)));
         }
-        std::cerr << "got response length: " << responseLength << "\n";
+        spdlog::debug("got response length: {}", responseLength);
 
         // need to clear old trailing message or potentially resize:
         m_responseBuffer.assign(responseLength, 0);
@@ -143,9 +156,9 @@ void NetworkManager::pollLoop()
             }
             bytesRead += currentBytes;
             bytesLeft -= currentBytes;
-            std::cerr << "just read " << currentBytes << " bytes of data\n";
+            spdlog::debug("just read {} bytes of data", currentBytes);
         }
-        std::cerr << "DEBUG: buffer data: " << std::format("{}", m_responseBuffer) << "\n";
+        // std::cerr << "DEBUG: buffer data: " << std::format("{}", m_responseBuffer) << "\n";
 
         if (m_responseBuffer.size() == 0)
             continue;
@@ -158,6 +171,7 @@ void NetworkManager::pollLoop()
                 std::make_move_iterator(messages.begin()),
                 std::make_move_iterator(messages.end()));
         }
+        // std::cerr << "DEBUG: m_responseBacklog at end of pollLoop() iter: " << m_responseBacklog << std::endl;
     }
 }
 

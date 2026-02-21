@@ -3,6 +3,7 @@
 #include <atomic>
 #include <deque>
 #include <forward_list>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -24,7 +25,7 @@ public:
 
 class NetworkManager {
 public:
-    NetworkManager(std::string_view socketPath = "./dcss3d.sock");
+    NetworkManager(std::string_view socketPath);
     ~NetworkManager();
 
     NetworkManager(NetworkManager&) = delete;
@@ -38,7 +39,8 @@ private:
     std::vector<json> m_responseBacklog;
     std::string m_socketPath;
     int m_sockfd;
-    struct pollfd m_pollfd;
+    int m_pipeCancel[2];
+    struct pollfd m_pollfds[2]; // from socket and pipe for cancel
     std::atomic<bool> m_isPolling;
     std::thread m_pollThread;
     std::vector<char> m_responseBuffer;
@@ -46,11 +48,6 @@ private:
     void pollLoop();
 };
 
-class GameResponseQueue {
-public:
-    void addHandler(std::vector<std::string> messageTypes, std::shared_ptr<MessageHandler> handler);
-    void processMessages(std::span<json> messages); // run through available messages
-
-private:
-    std::unordered_map<std::string, std::vector<std::weak_ptr<MessageHandler>>> m_listeners;
-};
+// using handlerConfig = std::unordered_map<std::string, std::vector<MessageHandler*>>;
+using handlerConfig = std::unordered_map<std::string, std::vector<std::reference_wrapper<MessageHandler>>>;
+void processMessages(handlerConfig& config, std::span<json> messages);

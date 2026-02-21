@@ -36,7 +36,7 @@ private:
     std::vector<glm::vec2> m_uvs;
     std::vector<Face> m_faces;
     std::string m_name;
-    std::string m_resourcePath;
+    const std::string m_resourcePath;
 
     void loadObj(std::string_view filename);
 };
@@ -52,16 +52,18 @@ struct ShaderParameters {
 // this base class can draw a single model at its designated position
 class BufferedModel {
 public:
-    BufferedModel(std::shared_ptr<SDL_GPUDevice>, SDL_Window*, std::unique_ptr<Model>,
+    BufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { "position.vert", 0, 1, 0, 0 },
         ShaderParameters fragment = { "color.frag", 0, 0, 0, 0 });
     ~BufferedModel();
 
+    virtual void release();
+
     virtual void draw(SDL_GPURenderPass*);
 
 protected: // needed by MapDisplacedBufferedModel too
-    std::unique_ptr<Model> m_model;
-    std::shared_ptr<SDL_GPUDevice> m_GPUDevice;
+    SDL_GPUDevice* m_GPUDevice;
+    std::unique_ptr<Model> m_model; // TODO no need for ptr, just Model;
     SDL_GPUBuffer* m_drawBuffer {}; // receives from m_drawTransferBuf, # indices + instances
     SDL_GPUTransferBuffer* m_drawTransferBuf {}; // SDL_GPUIndexedIndirectDrawCommand
     Uint32 m_drawBufSize;
@@ -74,6 +76,7 @@ private:
     SDL_GPUBuffer* m_indexBuffer {}; // ^ so don't need to store their temp transfer buffer here
     Uint32 m_vertexBufSize;
     Uint32 m_indexBufSize;
+    bool m_hasReleased;
 
     SDL_GPUGraphicsPipeline* createGraphicsPipelineWithShaders(SDL_Window* window, ShaderParameters vertex, ShaderParameters fragment);
     void uploadModel();
@@ -82,10 +85,12 @@ private:
 // has special buffers to handle drawing the map model at each chosen index
 class MapDisplacedBufferedModel : public BufferedModel {
 public:
-    MapDisplacedBufferedModel(std::shared_ptr<SDL_GPUDevice>, SDL_Window*, std::unique_ptr<Model>,
+    MapDisplacedBufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { std::string_view("position_color_shifted.vert"), 0, 1, 1, 0 },
         ShaderParameters fragment = { std::string_view("vert_input_color.frag"), 0, 0, 0, 0 });
     ~MapDisplacedBufferedModel();
+
+    void release() override;
 
     void draw(SDL_GPURenderPass*) override;
     void pushMapData(const GameMap&, SDL_GPUCommandBuffer*); // update with map data
@@ -93,6 +98,7 @@ public:
 private:
     SDL_GPUBuffer* m_mapDataBuffer {};
     SDL_GPUTransferBuffer* m_dataTransferBuf {};
+    bool m_hasReleased;
 
     struct DisplacementColorInfo {
         glm::vec3 pos;
@@ -111,16 +117,19 @@ public:
     Renderer();
     ~Renderer();
     void doRender(GameMap&, const Camera&);
+    // TODO: add void func to take imgui context to draw externally-prepared window
 
-    SDL_Window* window() { return m_window.get(); }
+    SDL_Window* window() { return m_window; }
+
+    SDL_GPUDevice* gpu_device() { return m_GPUDevice; }
 
     Renderer(Renderer&) = delete;
     Renderer(Renderer&&) = delete;
 
     // e.g. render_info stuff
 private:
-    std::shared_ptr<SDL_Window> m_window;
-    std::shared_ptr<SDL_GPUDevice> m_GPUDevice;
+    SDL_Window* m_window;
+    SDL_GPUDevice* m_GPUDevice;
 
     std::unique_ptr<MapDisplacedBufferedModel> m_mapCubeModel;
 
