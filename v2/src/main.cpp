@@ -8,22 +8,19 @@
 #include "imguilayouts.hpp"
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <SDL3/SDL_scancode.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <iostream>
 #include <memory>
-#include <print>
 #include <signal.h>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <unordered_map>
 
-// todo multiple keys at once? C version kept track separate from input
-std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, bool& isDone)
+std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, Renderer& renderer, bool& isDone)
 {
     // TODO prevent diagonal speedup
 
@@ -51,8 +48,19 @@ std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, bool& i
         return std::make_unique<MoveTurn>(Here);
         break;
     case SDL_SCANCODE_Q:
+        // TODO 2-26 now not fully quitting with q, need ctrl-c, probably related to rendering freeze bug
         spdlog::debug("received q key");
         isDone = true;
+        break;
+    case SDL_SCANCODE_ESCAPE:
+        if (key.type == SDL_EVENT_KEY_UP) {
+            spdlog::debug("before: {}", renderer.renderUI());
+            renderer.setRenderUI(!renderer.renderUI());
+            spdlog::debug("after: {}", renderer.renderUI());
+        }
+        break;
+    case SDL_SCANCODE_RETURN:
+        return std::make_unique<InputTurn>(SDL_SCANCODE_RETURN);
         break;
     default:
         break;
@@ -71,7 +79,7 @@ std::unique_ptr<Turn> processInput(const SDL_Event& event, Renderer& renderer, P
         break;
     case SDL_EVENT_KEY_UP:
     case SDL_EVENT_KEY_DOWN:
-        return process_key(event.key, player, isDone);
+        return process_key(event.key, player, renderer, isDone);
     case SDL_EVENT_WINDOW_RESIZED:
         break;
     case SDL_EVENT_WINDOW_MOUSE_ENTER:
@@ -103,7 +111,8 @@ constexpr uint32_t FRAMERATE_MS = (1.0f / 60.0f) * 1000.0f;
 
 pid_t runRelayServer()
 {
-    const std::string scriptPath = std::format("{}dcss_server.py", SDL_GetBasePath());
+    // const std::string scriptPath = std::format("{}dcss_server.py", SDL_GetBasePath());
+    const std::string scriptPath = std::format("{}dcss_server_wrapper.sh", SDL_GetBasePath());
     spdlog::debug("script path: '{}'", scriptPath);
 
     pid_t pid;
@@ -154,7 +163,8 @@ int main(int argc, char* argv[])
             ImGui::ShowDemoWindow();
             displayPlayer(player);
             displayMap(map);
-            toggleCollision();
+            networkMenu(networkManager);
+            renderMenu(renderer);
 
             ImGui::Render();
 
@@ -195,7 +205,7 @@ int main(int argc, char* argv[])
             }
 
             // wait for 60fps
-            SDL_Delay(FRAMERATE_MS - (1000.0f * gameTime.dt()));
+            // SDL_Delay(FRAMERATE_MS - (1000.0f * gameTime.dt()));
         }
     } catch (const std::runtime_error& e) {
         spdlog::error("Received unhandled exception: {}", e.what());

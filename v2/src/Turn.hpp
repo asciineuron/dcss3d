@@ -1,8 +1,8 @@
 #pragma once
 
+#include <SDL3/SDL_scancode.h>
 #include <nlohmann/json.hpp>
-#include <stdexcept>
-#include <string_view>
+#include <unordered_map>
 
 using json = nlohmann::json;
 
@@ -35,4 +35,21 @@ public:
 
 private:
     Direction m_direction;
+};
+
+const char defaultGameID[] = "Dungeon Crawl Stone Soup 0.34.0";
+json playMessage(std::string_view gameID = defaultGameID);
+json loginMessage(std::string_view username, std::string_view password);
+
+// just sends a string as "input" msg,
+// same underlying category as MoveTurn but for non movement input e.g. '.' or enter
+// since 3d doesn't input wasd movement directly
+class InputTurn : public Turn {
+public:
+    InputTurn(SDL_Scancode input);
+    json asMessage() const override;
+
+private:
+    SDL_Scancode m_input;
+    static const std::unordered_map<SDL_Scancode, const char*> scancodeToText;
 };

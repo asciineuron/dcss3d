@@ -1,5 +1,6 @@
 #include "Turn.hpp"
-#include <iostream>
+#include <SDL3/SDL_scancode.h>
+#include <spdlog/spdlog.h>
 
 const char* directionToString[DirectionSize] = {
     "None",
@@ -59,6 +60,32 @@ json MoveTurn::asMessage() const
     message["msg"] = "input";
     message["text"] = dir_val;
 
-    std::cerr << "move as message: " << message << "\n";
+    spdlog::debug("move as message: {}", message.dump());
     return message;
 }
+
+json playMessage(std::string_view gameID)
+{
+    return { { "msg", "play" }, { "game_id", gameID } };
+}
+
+json loginMessage(std::string_view username, std::string_view password)
+{
+    return { { "msg", "login" }, { "username", username }, { "password", password } };
+}
+
+InputTurn::InputTurn(SDL_Scancode input)
+    : m_input { input }
+{
+}
+
+json InputTurn::asMessage() const
+{
+    return { { "msg", "input" }, { "text", scancodeToText.at(m_input) } };
+}
+
+const std::unordered_map<SDL_Scancode, const char*> InputTurn::scancodeToText = {
+    { SDL_SCANCODE_RETURN, ":" },
+    { SDL_SCANCODE_KP_GREATER, ">" }, // are the <> scancodes correct?
+    { SDL_SCANCODE_KP_LESS, "<" }
+};

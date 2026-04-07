@@ -1,15 +1,11 @@
 #pragma once
-
 #include <atomic>
-#include <deque>
-#include <forward_list>
 #include <functional>
-#include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
-#include <optional>
 #include <poll.h>
 #include <span>
+#include <deque>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -17,6 +13,8 @@
 #include <vector>
 
 using json = nlohmann::json;
+
+class GameTime;
 
 class MessageHandler {
 public:
@@ -34,8 +32,16 @@ public:
     std::vector<json> getNewMessages();
     void sendMessage(const json& message);
 
+    std::mutex messageMutex;
+    // use via messageMutex:
+    const auto& responseHistory() const { return m_responseHistory; };
+    // mutex not needed since writes aren't in poll loop, but on main thread:
+    const auto& sendHistory() const {return m_sendHistory; };
+    // TODO: some way to view these unified/interleaved by timestamps?
+
+    void chooseCharacter(std::array<char,3> speciesBackgroundWeapon = {'b', 'i', 'c'});
+
 private:
-    std::mutex m_backlogMutex;
     std::vector<json> m_responseBacklog;
     std::string m_socketPath;
     int m_sockfd;
@@ -45,7 +51,18 @@ private:
     std::thread m_pollThread;
     std::vector<char> m_responseBuffer;
 
+    constexpr static const float s_connectTimeoutSec = 5.0f;
+
+    constexpr static int s_messageHistorySize = 200;
+    std::deque<std::string> m_responseHistory; // TODO: add e.g. timestamp info?
+    std::deque<std::string> m_sendHistory;
+
     void pollLoop();
+
+    // TODO: implement these
+    void playGame();
+    // add subfunctions as needed
+
 };
 
 // using handlerConfig = std::unordered_map<std::string, std::vector<MessageHandler*>>;

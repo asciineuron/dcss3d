@@ -42,7 +42,7 @@ struct Pos2 {
 
 namespace std {
 template <>
-struct std::hash<Pos2<int>> {
+struct hash<Pos2<int>> {
     std::size_t operator()(const Pos2<int>& p) const
     {
         return std::hash<int> {}(p.x) ^ std::hash<int> {}(p.y);
@@ -67,6 +67,7 @@ public:
     void setDidRender(bool didRender) { m_didRender = didRender; };
 
     friend std::ostream& operator<<(std::ostream&, const GameMap&);
+    std::string asciiView() const;
 
 private:
     MapData m_map;

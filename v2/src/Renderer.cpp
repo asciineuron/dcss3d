@@ -3,6 +3,8 @@
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlgpu3.h"
+#include <SDL3/SDL_gpu.h>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
@@ -103,6 +105,13 @@ SDL_GPUShader* loadShader(SDL_GPUDevice* device, const ShaderParameters& paramet
 }
 
 Renderer::Renderer()
+    : m_window { nullptr }
+    , m_GPUDevice { nullptr }
+    , m_windowID { 0 }
+    , m_windowHeight { 0 }
+    , m_windowWidth { 0 }
+    , m_renderCount { 0 }
+    , m_renderUI { false }
 {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         throw std::runtime_error(std::format("SDL_Init failure: {}", SDL_GetError()));
@@ -146,14 +155,17 @@ Renderer::Renderer()
     initInfo.Device = m_GPUDevice;
     initInfo.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(m_GPUDevice, m_window);
     initInfo.PresentMode = SDL_GPU_PRESENTMODE_VSYNC;
+    // initInfo.PresentMode = SDL_GPU_PRESENTMODE_IMMEDIATE;
     ImGui_ImplSDLGPU3_Init(&initInfo);
 }
+// TODO stuck acquiring swapchain texture...
 
 void Renderer::doRender(GameMap& map, const Camera& camera)
 {
     // do all rendering-related updates that don't require a command buffer pass first
-    ImDrawData* drawData = ImGui::GetDrawData();
-    const bool isMinimized = (drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f);
+    ImDrawData* drawData = m_renderUI ? ImGui::GetDrawData() : nullptr;
+    // TODO determine even without UI, for now just defaults to false so need menu open to skip rendering...
+    const bool isMinimized = m_renderUI ? (drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f) : false;
 
     // TODO instead have MapDisplacedBufferedModel do all the binding itself? and just call its render func which does this?
     glm::mat4 cameraView = camera.toViewProjection();
@@ -161,6 +173,7 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
     SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(m_GPUDevice);
 
     SDL_GPUTexture* swapchainTexture = NULL;
+    // TODO note stuck here...
     SDL_WaitAndAcquireGPUSwapchainTexture(commandBuffer, m_window, &swapchainTexture, NULL, NULL);
 
     if (swapchainTexture && !isMinimized) {
@@ -170,7 +183,8 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
             map.setDidRender(true);
         }
 
-        ImGui_ImplSDLGPU3_PrepareDrawData(drawData, commandBuffer);
+        if (m_renderUI)
+            ImGui_ImplSDLGPU3_PrepareDrawData(drawData, commandBuffer);
 
         // do actual rendering
         SDL_GPUColorTargetInfo targetInfo = { 0 };
@@ -184,11 +198,20 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
 
         m_mapCubeModel->draw(renderPass);
 
-        ImGui_ImplSDLGPU3_RenderDrawData(drawData, commandBuffer, renderPass);
+        if (m_renderUI)
+            ImGui_ImplSDLGPU3_RenderDrawData(drawData, commandBuffer, renderPass);
 
         SDL_EndGPURenderPass(renderPass);
     }
+
     SDL_SubmitGPUCommandBuffer(commandBuffer);
+
+    ++m_renderCount;
+}
+
+const uint64_t Renderer::renderCount() const
+{
+    return m_renderCount;
 }
 
 // delegate to the MapDisplacedBufferedModel?

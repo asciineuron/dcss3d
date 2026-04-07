@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!python3
 
 import argparse
 import json
@@ -29,7 +29,8 @@ SOCKET = "./dcss3d.sock"
 
 USERNAME = "asciineuron"
 PASSWORD = "password"
-GAME_ID = "dcss-web-trunk"
+# GAME_ID = "dcss-web-trunk"
+GAME_ID = "Dungeon Crawl Stone Soup 0.34.0"
 
 
 def len_encode_msg(msg):
@@ -50,7 +51,7 @@ class DCSSClient:
 
     WEBSOCK_LINK = "ws://localhost:8080/socket"
 
-    def __init__(self, sock=None):
+    def __init__(self, sock):
         self._websock = connect(DCSSClient.WEBSOCK_LINK, sock=sock)
         self._tcpsock = sock
         # no stream header/trailer expected, hence -zlib.MAX_WBITS
@@ -73,16 +74,34 @@ class DCSSClient:
             {"msg": "login", "username": str(username), "password": str(password)}
         )
         self.send(message)
+
         # expect 'ping', 'lobby_clear', and 'lobby_complete' messages next, before receiving commands:
-        self._receive_check_msg("lobby_clear")
-        self._receive_check_msg("lobby_complete")
+        _ = self._receive_check_msg("lobby_clear")
+        _ = self._receive_check_msg("lobby_complete")
+        # 2-25 wait for Play Now message
+        self._receive_check_msg("set_game_links", timeout=None)
+        # self._receive_play_now()
+
+    # def _receive_play_now(self):
+    #     # NOTE: "set_game_links" not html, can maybe use _receive_check_msg() instead
+    #     # repeats _receive_check_msg("set_game_links", timeout=None)
+    #     # until gets "content" containing 'Play now'
+    #     while True: # TODO 2-25 not sure why won't keep looping _receive_check_msg()...
+    #         while msg := self._receive_check_msg("set_game_links", timeout=None):
+    #             print(f"loop msg: {msg}")
+    #             try:
+    #                 if "Play now" in msg["content"]:
+    #                     print("DONE WAITING!")
+    #                     return
+    #             except Exception:
+    #                 continue
 
     def play(self, game_id=GAME_ID):
         message = json.dumps({"msg": "play", "game_id": str(game_id)})
         self.send(message)
         # TODO: we sometimes get the game data before the game_started message, need to send it so remove check for 'game_started'
         # self._receive_check_msg("game_started")
-        # self._choose_character()
+        self._choose_character()
 
     def send(self, message):
         logger.debug(f"sending string: {message}")
@@ -90,8 +109,7 @@ class DCSSClient:
 
     def fileno(self):
         # for polling
-        if self._tcpsock:
-            return self._tcpsock.fileno()
+        return self._tcpsock.fileno()
 
     def _decode_decompress_server_response(self, response):
         # it seems like it's a bytes object, decompress zlib data and add extra bytes
@@ -108,7 +126,7 @@ class DCSSClient:
     def _get_server_messages(self, timeout=None):
         """Receives a message from the server, decodes it, and appends all json messages to the queue"""
         json_response = json.loads(self._get_decoded_response(timeout))
-        if msg_val := json_response.get("msg"):
+        if json_response.get("msg") is not None:
             # response is a single message dict
             self._message_dicts.append(json_response)
         else:
@@ -116,51 +134,24 @@ class DCSSClient:
             messages = json_response["msgs"]
             self._message_dicts.extend(messages)
 
-    def _process_other_message(self, message):
-        """use this to interpret the ui-push etc messages that don't get sent to dcss3d"""
-        pass
-
-    def _has_interesting_next_message(self):
-        # TODO: change behavior, send all messsages to client... which will ignore the one's it doesn't know
-        # filters to subset of messages we're interested in tracking
-        if len(self._message_dicts) == 0:
-            return False
-        return True
-        # match self._message_dicts[0]["msg"]:
-        #     case "map":
-        #         return True
-        #     case "ping" | "html" | "game_client" | "update_spectators" | "ui-push" | "player" | "msgs" | "game_started" | "chat":
-        #         return False
-        #     case _:
-        #         # return True
-        #         return False
-
     def messages(self, as_string=False, timeout=None):
         """If messsage queue is empty, recv() a new server response, otherwise pop the next saved message dict"""
-        # skip unused messages:
-        # TODO: more interesting: dispatch the appropriate handler for messages that
-        # *are* interesting, but shouldn't go to dcss3d, e.g. 'update_spectators'
         try:
-            while not self._has_interesting_next_message():
-                if len(self._message_dicts) == 0:
-                    self._get_server_messages(timeout)
-                else:
-                    msg = self._message_dicts.popleft()
-                    self._process_other_message(msg)
+            if len(self._message_dicts) == 0:
+                self._get_server_messages(timeout)
             msg = self._message_dicts.popleft()
             if as_string:
                 yield json.dumps(msg)
             else:
                 yield msg
-        except TimeoutError as e:
-            logger.debug(f"no more messages from the server")
-            # raise StopIteration
+        except TimeoutError:
+            logger.debug("no more messages from the server")
 
-    def _receive_check_msg(self, msg_val):
+    def _receive_check_msg(self, msg_val, timeout=None):
         """Receives a message and throws a ConnectionError exception if 'msg'
         contents don't match msg_val."""
         # just consume one response:
-        for msg_dict in self.messages():
+        for msg_dict in self.messages(timeout=timeout):
             # if msg_dict["msg"] != str(msg_val):
             #     raise ConnectionError(f"didn't receive '{msg_val}'")
             # else:
@@ -168,7 +159,8 @@ class DCSSClient:
 
             # TODO: changed, now waits here until it gets the message...
             if msg_dict["msg"] == str(msg_val):
-                return
+                print(f"returning {msg_dict}")
+                return msg_dict
 
     def _send_msg_text(self, text):
         """Sends a {"msg": "input", "text": text} message to server."""
@@ -214,40 +206,9 @@ class DCSSUnixStreamHandler(socketserver.StreamRequestHandler):
         with DCSSClient(socket.create_connection((HOST, PORT))) as dcss_client:
             poll.register(dcss_client.fileno(), POLLIN | POLLHUP)
 
-            dcss_client.login(USERNAME, PASSWORD)
-            dcss_client.play()
-
-            # iterate through game responses:
-            # TODO fix need decoupled loops - dcss3d may send several turns and be stuck waiting for a server update which never comes...
-            # for game_message in dcss_client:
-            #     # send message to client:
-            #     encoded_msg = len_encode_msg(game_message)
-            #     logger.debug(f"received server message: {encoded_msg}")
-            #     # NOTE looks like python hangs up after a single write() so the connection is closed... let's fix this
-            #     self.wfile.write(encoded_msg)
-            #     # self.request.sendall(encoded_msg)
-
-            #     # check if local game update, quitting if received hangup or error:
-            #     fd_event_list = poll.poll(0)
-
-            #     if any(
-            #         event & (POLLHUP | POLLNVAL | POLLERR)
-            #         for _, event in fd_event_list
-            #     ):
-            #         break
-
-            #     if not any(event & POLLIN for _, event in fd_event_list):
-            #         continue
-
-            #     # get client response:
-            #     # TODO: note if data get the game to update a turn (e.g. dummy messages not relating to map data) we don't want to read here and hang...
-            #     # instead do nonblocking? only update the server if there's something to read right now
-            #     msg_len = int.from_bytes(self.rfile.read(4), byteorder=sys.byteorder)
-            #     msg = self.rfile.read(msg_len).decode("ascii")
-            #     logger.debug(f"received client message: {msg}")
-
-            #     # send to game server:
-            #     dcss_client.send(msg)
+            # TODO 2-26 add to c++ instead
+            # dcss_client.login(USERNAME, PASSWORD)
+            # dcss_client.play()
 
             while fd_event_list := poll.poll():
                 if any(
@@ -262,14 +223,6 @@ class DCSSUnixStreamHandler(socketserver.StreamRequestHandler):
                     self.wfile.write(encoded_msg)
 
                 for fd, event in fd_event_list:
-                    # TODO: more messages than fd events...
-                    # if fd == dcss_client.fileno():
-                    #     if not event & POLLIN:
-                    #         continue
-                    #     # get server message:
-                    #     for game_message in dcss_client.messages(as_string=True, timeout=0):
-                    #         encoded_msg = len_encode_msg(game_message)
-                    #         self.wfile.write(encoded_msg)
                     if fd == self.request.fileno():
                         if not event & POLLIN:
                             continue
@@ -283,13 +236,13 @@ class DCSSUnixStreamHandler(socketserver.StreamRequestHandler):
                         )
                         # send to game server:
                         dcss_client.send(msg)
-                    elif fd == sys.stdin.fileno():
-                        if not event & POLLIN:
-                            continue
-                        # read one line, send as text input message
-                        input_line = sys.stdin.readline().strip()
-                        input_msg = {"msg": "input", "text": input_line}
-                        dcss_client.send(json.dumps(input_msg))
+                    # elif fd == sys.stdin.fileno():
+                    #     if not event & POLLIN:
+                    #         continue
+                    #     # read one line, send as text input message
+                    #     input_line = sys.stdin.readline().strip()
+                    #     input_msg = {"msg": "input", "text": input_line}
+                    #     dcss_client.send(json.dumps(input_msg))
 
 
 class FileDCSSUnixStreamServer(socketserver.UnixStreamServer):

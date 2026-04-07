@@ -1,10 +1,13 @@
 #include "MessageQueue.hpp"
+#include "Turn.hpp"
+#include <SDL3/SDL.h>
+#include <cerrno>
+#include <cstdint>
 #include <cstring>
 #include <errno.h>
 #include <filesystem>
 #include <format>
 #include <future>
-#include <iostream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -45,6 +48,28 @@ NetworkManager::NetworkManager(std::string_view socketPath)
     spdlog::debug("socket path: '{}'", m_socketPath);
 
     if (connect(m_sockfd, (struct sockaddr*)&remote, sizeof(struct sockaddr_un)) == -1) {
+        if (errno == ECONNREFUSED) {
+            // if socket not open yet, keep trying for up to s_connectTimeoutSec seconds
+            uint64_t start = SDL_GetTicks();
+            uint64_t now = start;
+            bool hasConnected = false;
+            // TODO 2/25 replace SDL tick time with proper std chrono implementation cast to seconds
+            while (!hasConnected && now - start < 1000 * s_connectTimeoutSec) {
+                // keep trying to connect. if fail for any reason other than connection refused, abort. break loop when successful and hasConnected
+                if (connect(m_sockfd, (struct sockaddr*)&remote, sizeof(struct sockaddr_un)) == -1) {
+                    if (errno != ECONNREFUSED)
+                        throw std::runtime_error(std::format("socket connect failure for socket path {}: {}", socketPath, std::strerror(errno)));
+                    else {
+                        now = SDL_GetTicks();
+                        continue;
+                    }
+                }
+                hasConnected = true;
+                break;
+            }
+            if (!hasConnected)
+                throw std::runtime_error(std::format("socket still failed to connect"));
+        }
         throw std::runtime_error(std::format("socket connect failure for socket path {}: {}", socketPath, std::strerror(errno)));
     }
 
@@ -61,12 +86,21 @@ NetworkManager::~NetworkManager()
     m_isPolling = false;
     write(m_pipeCancel[1], ".", 1);
     m_pollThread.join();
+    close(m_sockfd);
     fs::remove(m_socketPath);
 }
 
 void NetworkManager::sendMessage(const json& message)
 {
     std::string messageString = message.dump();
+
+    // save send history
+    m_sendHistory.push_back(messageString);
+    int excessSize = m_sendHistory.size() - s_messageHistorySize;
+    for (int i = 0; i < excessSize; i++) {
+        m_sendHistory.pop_front();
+    }
+
     uint32_t messageLength = static_cast<uint32_t>(messageString.length());
     spdlog::debug("sending message '{}'", messageString);
 
@@ -158,7 +192,6 @@ void NetworkManager::pollLoop()
             bytesLeft -= currentBytes;
             spdlog::debug("just read {} bytes of data", currentBytes);
         }
-        // std::cerr << "DEBUG: buffer data: " << std::format("{}", m_responseBuffer) << "\n";
 
         if (m_responseBuffer.size() == 0)
             continue;
@@ -166,12 +199,59 @@ void NetworkManager::pollLoop()
         std::vector<json> messages = parseResponseMessages(m_responseBuffer);
 
         {
-            std::scoped_lock lock(m_backlogMutex);
+            std::scoped_lock lock(messageMutex);
+
+            // add to history too
+            for (const auto& message : messages) {
+                m_responseHistory.emplace_back(std::move(message.dump()));
+            }
+            // drop old excess elements
+            int excessSize = m_responseHistory.size() - s_messageHistorySize;
+            for (int i = 0; i < excessSize; i++) {
+                m_responseHistory.pop_front();
+            }
+
+            // move to backlog
             m_responseBacklog.insert(m_responseBacklog.end(),
                 std::make_move_iterator(messages.begin()),
                 std::make_move_iterator(messages.end()));
+
         }
-        // std::cerr << "DEBUG: m_responseBacklog at end of pollLoop() iter: " << m_responseBacklog << std::endl;
+    }
+}
+
+void NetworkManager::playGame()
+{
+    sendMessage(loginMessage("asciineuron", "password"));
+
+    sendMessage(playMessage());
+
+    chooseCharacter();
+}
+
+void NetworkManager::chooseCharacter(std::array<char, 3> speciesBackgroundWeapon)
+{
+    bool didSetSpecies = false;
+    bool didSetBackground = false;
+    bool didSetWeapon = false;
+
+    while (!(didSetSpecies && didSetBackground && didSetWeapon)) {
+        for (json message : getNewMessages()) {
+            // TODO what happens if we get an incorrect message here?? e.g. out of order
+            // for now let's assume that *never* happens once we've worked out bugs
+            if (message["msg"] == "ui-push") {
+                if (message["type"] == "species") {
+                    sendMessage({ { "msg", "input" }, { "text", speciesBackgroundWeapon[0] } });
+                    didSetSpecies = true;
+                } else if (message["type"] == "background") {
+                    sendMessage({ { "msg", "input" }, { "text", speciesBackgroundWeapon[1] } });
+                    didSetBackground = true;
+                } else if (message["type"] == "weapon") {
+                    sendMessage({ { "msg", "input" }, { "text", speciesBackgroundWeapon[2] } });
+                    didSetWeapon = true;
+                }
+            }
+        }
     }
 }
 
@@ -179,7 +259,7 @@ std::vector<json> NetworkManager::getNewMessages()
 {
     std::vector<json> poppedMessages {};
     {
-        std::scoped_lock lock(m_backlogMutex);
+        std::scoped_lock lock(messageMutex);
         m_responseBacklog.swap(poppedMessages);
     }
     return poppedMessages;

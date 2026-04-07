@@ -24,26 +24,26 @@ target_sources(dcss3d PRIVATE
 	src/debug.hpp
 	src/debug.cpp
 
-	imgui-master/imconfig.h
-	imgui-master/imgui.cpp
-	imgui-master/imgui.h
-	imgui-master/imgui_demo.cpp
-	imgui-master/imgui_draw.cpp
-	imgui-master/imgui_internal.h
-	imgui-master/imgui_tables.cpp
-	imgui-master/imgui_widgets.cpp
-	imgui-master/imstb_rectpack.h
-	imgui-master/imstb_textedit.h
-	imgui-master/imstb_truetype.h
+	imgui/imconfig.h
+	imgui/imgui.cpp
+	imgui/imgui.h
+	imgui/imgui_demo.cpp
+	imgui/imgui_draw.cpp
+	imgui/imgui_internal.h
+	imgui/imgui_tables.cpp
+	imgui/imgui_widgets.cpp
+	imgui/imstb_rectpack.h
+	imgui/imstb_textedit.h
+	imgui/imstb_truetype.h
 
-	imgui-master/backends/imgui_impl_sdlgpu3.cpp
-	imgui-master/backends/imgui_impl_sdl3.cpp
-	imgui-master/backends/imgui_impl_sdlgpu3.h
-	imgui-master/backends/imgui_impl_sdl3.h
-	imgui-master/backends/imgui_impl_sdlgpu3_shaders.h
+	imgui/backends/imgui_impl_sdlgpu3.cpp
+	imgui/backends/imgui_impl_sdl3.cpp
+	imgui/backends/imgui_impl_sdlgpu3.h
+	imgui/backends/imgui_impl_sdl3.h
+	imgui/backends/imgui_impl_sdlgpu3_shaders.h
 
-	imgui-master/misc/cpp/imgui_stdlib.h
-	imgui-master/misc/cpp/imgui_stdlib.cpp)
+	imgui/misc/cpp/imgui_stdlib.h
+	imgui/misc/cpp/imgui_stdlib.cpp)
 
 find_library(MATH_LIB m)
 if (MATH_LIB)
@@ -65,8 +65,13 @@ target_link_libraries(dcss3d PRIVATE spdlog::spdlog)
 add_compile_options(-Wall -Wextra -Wpedantic)
 set(CMAKE_BUILD_TYPE Debug)
 
-target_include_directories(dcss3d PRIVATE imgui-master)
-target_include_directories(dcss3d PRIVATE imgui-master/backends)
+add_compile_options(-fstandalone-debug)
+
+target_include_directories(dcss3d PRIVATE imgui)
+target_include_directories(dcss3d PRIVATE imgui/backends)
+target_include_directories(dcss3d PRIVATE imgui/misc/cpp)
+
+target_include_directories(dcss3d PRIVATE mdspan/include)
 
 file(COPY ${PROJECT_SOURCE_DIR}/resources DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${PROJECT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR})

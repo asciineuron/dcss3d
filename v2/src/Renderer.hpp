@@ -1,6 +1,7 @@
 #pragma once
 #include "GameMap.hpp"
 #include <SDL3/SDL.h>
+#include <atomic>
 #include <glm/glm.hpp>
 #include <iostream>
 #include <memory>
@@ -116,15 +117,20 @@ class Renderer {
 public:
     Renderer();
     ~Renderer();
+
+    Renderer(Renderer&) = delete;
+    Renderer(Renderer&&) = delete;
+
     void doRender(GameMap&, const Camera&);
-    // TODO: add void func to take imgui context to draw externally-prepared window
+
+    const uint64_t renderCount() const;
 
     SDL_Window* window() { return m_window; }
 
     SDL_GPUDevice* gpu_device() { return m_GPUDevice; }
 
-    Renderer(Renderer&) = delete;
-    Renderer(Renderer&&) = delete;
+    void setRenderUI(bool renderUI) { m_renderUI = renderUI; };
+    const bool renderUI() const { return m_renderUI; }
 
     // e.g. render_info stuff
 private:
@@ -136,6 +142,9 @@ private:
     SDL_WindowID m_windowID {};
     int m_windowWidth {};
     int m_windowHeight {};
+
+    std::atomic_uint64_t m_renderCount;
+    bool m_renderUI; // toggle to disable imgui overlay
 
     void pushMapToGPU(const GameMap&, SDL_GPUCommandBuffer*);
 

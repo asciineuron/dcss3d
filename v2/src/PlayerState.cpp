@@ -97,10 +97,10 @@ std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& 
     if (gameMap.wouldCollide(testPosition) && !skipCollisionCheck)
         return nullptr;
 
-    spdlog::debug("test position: {} {}", testPosition[0], testPosition[1]);
-    spdlog::debug("camera position: {} {}", m_camera.pos[0], m_camera.pos[2]);
-    spdlog::debug("floor test position: {} {}", std::floor(testPosition[0]), std::floor(testPosition[1]));
-    spdlog::debug("floor camera position: {} {}", std::floor(m_camera.pos[0]), std::floor(m_camera.pos[2]));
+    // spdlog::debug("test position: {} {}", testPosition[0], testPosition[1]);
+    // spdlog::debug("camera position: {} {}", m_camera.pos[0], m_camera.pos[2]);
+    // spdlog::debug("floor test position: {} {}", std::floor(testPosition[0]), std::floor(testPosition[1]));
+    // spdlog::debug("floor camera position: {} {}", std::floor(m_camera.pos[0]), std::floor(m_camera.pos[2]));
 
     // check if generated a move
     Direction moveDir = None;
