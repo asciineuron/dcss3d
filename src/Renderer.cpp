@@ -9,6 +9,7 @@
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace fs = std::filesystem;
@@ -126,7 +127,7 @@ Renderer::Renderer()
 
     m_windowID = SDL_GetWindowID(m_window);
 
-    if (!SDL_GetWindowSize(m_window, &m_windowWidth, &m_windowWidth))
+    if (!SDL_GetWindowSize(m_window, &m_windowWidth, &m_windowHeight))
         throw std::runtime_error(std::format("SDL_GetWindowSize error: {}", SDL_GetError()));
 
     m_GPUDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL, true, nullptr);
@@ -169,12 +170,18 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
 
     // TODO instead have MapDisplacedBufferedModel do all the binding itself? and just call its render func which does this?
     glm::mat4 cameraView = camera.toViewProjection();
+    
+    // Debug: check if map is empty
+    if (!map.didRender() && map.map().empty()) {
+        spdlog::debug("Map is empty, nothing to render yet");
+    }
 
     SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(m_GPUDevice);
 
     SDL_GPUTexture* swapchainTexture = NULL;
-    // TODO note stuck here...
+    spdlog::debug("Acquiring swapchain texture...");
     SDL_WaitAndAcquireGPUSwapchainTexture(commandBuffer, m_window, &swapchainTexture, NULL, NULL);
+    spdlog::debug("Swapchain texture acquired: {}", swapchainTexture ? "yes" : "no");
 
     if (swapchainTexture && !isMinimized) {
         // upload all data via copy passes

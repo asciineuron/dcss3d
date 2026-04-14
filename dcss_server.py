@@ -23,9 +23,10 @@ from websockets.sync.client import connect
 logger = logging.getLogger(__name__)
 
 HOST, PORT = "localhost", 8080
-# SOCKET = "./build/dcss3d.sock"
-SOCKET = "./dcss3d.sock"
-# SOCKET = "./build_xcode/Debug/dcss3d.sock"
+# Get socket path relative to script directory
+import os
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SOCKET = os.path.join(SCRIPT_DIR, "dcss3d.sock")
 
 USERNAME = "asciineuron"
 PASSWORD = "password"
