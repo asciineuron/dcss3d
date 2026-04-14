@@ -1,4 +1,50 @@
+
+# Build artifacts
+build/
+build_xcode/
+*.o
+*.d
+*.exe
+
+# IDE and editor files
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
-build*
 *.sublime-project
 *.sublime-workspace
+
+# ZED editor
+.zed/.cache/
+
+# Compilation database
+compile_commands.json
+compile_flags.txt
+
+# Logs and cache
+*.log
+.cache/
+tags
+
+# Test files
+test_*.txt
+working\ notes.md
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# macOS metadata
+.AppleDouble
+.LSOverride
+Spotlight/V100
+
+# Binary executables
+dcss3d
+
+# Shaders compiled
+*.spv
+*.hlsl
+*.msl

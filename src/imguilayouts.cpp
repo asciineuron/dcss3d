@@ -105,7 +105,7 @@ void renderMenu(Renderer& renderer)
     if (ImGui::Button("toggle skip collision"))
         skipCollisionCheck = !skipCollisionCheck;
 
-    ImGui::Text("render count: %lu", renderer.renderCount());
+    ImGui::Text("render count: %llu", renderer.renderCount());
 
     ImGui::End();
 }

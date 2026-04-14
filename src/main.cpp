@@ -133,9 +133,9 @@ void stopRelayServer(pid_t child)
 
 int main(int argc, char* argv[])
 {
-    pid_t relayPID = runRelayServer();
-
     spdlog::set_level(spdlog::level::debug);
+
+    pid_t relayPID = runRelayServer();
 
     bool didFail = false;
     try {
