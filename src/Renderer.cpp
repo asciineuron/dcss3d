@@ -170,7 +170,7 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
 
     // TODO instead have MapDisplacedBufferedModel do all the binding itself? and just call its render func which does this?
     glm::mat4 cameraView = camera.toViewProjection();
-    
+
     // Debug: check if map is empty
     if (!map.didRender() && map.map().empty()) {
         spdlog::debug("Map is empty, nothing to render yet");
@@ -179,9 +179,9 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
     SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(m_GPUDevice);
 
     SDL_GPUTexture* swapchainTexture = NULL;
-    spdlog::debug("Acquiring swapchain texture...");
+    // spdlog::debug("Acquiring swapchain texture...");
     SDL_WaitAndAcquireGPUSwapchainTexture(commandBuffer, m_window, &swapchainTexture, NULL, NULL);
-    spdlog::debug("Swapchain texture acquired: {}", swapchainTexture ? "yes" : "no");
+    // spdlog::debug("Swapchain texture acquired: {}", swapchainTexture ? "yes" : "no");
 
     if (swapchainTexture && !isMinimized) {
         // upload all data via copy passes

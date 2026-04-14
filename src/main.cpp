@@ -54,8 +54,17 @@ std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, Rendere
         break;
     case SDL_SCANCODE_ESCAPE:
         if (key.type == SDL_EVENT_KEY_UP) {
+            bool newRenderUI = !renderer.renderUI();
             spdlog::debug("before: {}", renderer.renderUI());
-            renderer.setRenderUI(!renderer.renderUI());
+            renderer.setRenderUI(newRenderUI);
+            // When showing UI, show the cursor and disable relative mode
+            if (newRenderUI) {
+                SDL_SetWindowRelativeMouseMode(renderer.window(), false);
+                SDL_ShowCursor();
+            } else {
+                // When hiding UI, re-enable relative mode (automatically hides cursor)
+                SDL_SetWindowRelativeMouseMode(renderer.window(), true);
+            }
             spdlog::debug("after: {}", renderer.renderUI());
         }
         break;
@@ -194,7 +203,17 @@ int main(int argc, char* argv[])
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
                 ImGui_ImplSDL3_ProcessEvent(&event);
-                if (!(io.WantCaptureMouse || io.WantCaptureKeyboard)) {
+                
+                // Always process keyboard events for Escape key, regardless of ImGui capture state
+                // This ensures we can always toggle the UI overlay even when in relative mouse mode
+                if (event.type == SDL_EVENT_KEY_UP && event.key.scancode == SDL_SCANCODE_ESCAPE) {
+                    turn = processInput(event, renderer, player, isDone);
+                    if (turn) {
+                        spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                        networkManager.sendMessage(turn->asMessage());
+                        break;
+                    }
+                } else if (!(io.WantCaptureMouse || io.WantCaptureKeyboard)) {
                     turn = processInput(event, renderer, player, isDone);
                     if (turn) {
                         spdlog::debug("generated turn: {}", turn->asMessage().dump());
