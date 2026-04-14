@@ -3,6 +3,10 @@ project(dcss3d LANGUAGES CXX)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# Find Python for venv creation
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
+
 add_executable(dcss3d)
 target_compile_features(dcss3d PUBLIC cxx_std_23)
 
@@ -75,6 +79,23 @@ target_include_directories(dcss3d PRIVATE mdspan/include)
 
 file(COPY ${PROJECT_SOURCE_DIR}/resources DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${PROJECT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR})
+
+# Create virtual environment and install dependencies in build directory
+set(VENV_DIR "${CMAKE_BINARY_DIR}/venv")
+execute_process(
+    COMMAND ${PYTHON_EXECUTABLE} -m venv ${VENV_DIR}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    OUTPUT_QUIET
+    ERROR_QUIET
+)
+
+# Install required Python packages
+execute_process(
+    COMMAND ${VENV_DIR}/bin/pip install --quiet websockets
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    OUTPUT_QUIET
+    ERROR_QUIET
+)
 
 file(COPY ${PROJECT_SOURCE_DIR}/dcss_server.py DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${PROJECT_SOURCE_DIR}/dcss_server_wrapper.sh DESTINATION ${CMAKE_BINARY_DIR})
