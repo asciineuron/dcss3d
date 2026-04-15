@@ -7,10 +7,11 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
 
-add_executable(dcss3d)
-target_compile_features(dcss3d PUBLIC cxx_std_23)
+# Main application sources as OBJECT library
+add_library(dcss3d_obj OBJECT)
+target_compile_features(dcss3d_obj PUBLIC cxx_std_23)
 
-target_sources(dcss3d PRIVATE
+target_sources(dcss3d_obj PRIVATE
 	src/MessageQueue.hpp
 	src/MessageQueue.cpp
 	src/Turn.hpp
@@ -51,31 +52,34 @@ target_sources(dcss3d PRIVATE
 
 find_library(MATH_LIB m)
 if (MATH_LIB)
-	target_link_libraries(dcss3d PRIVATE ${MATH_LIB})
+	target_link_libraries(dcss3d_obj PRIVATE ${MATH_LIB})
 endif()
 
 find_package(SDL3 REQUIRED)
-target_link_libraries(dcss3d PRIVATE SDL3::SDL3)
+target_link_libraries(dcss3d_obj PRIVATE SDL3::SDL3)
 
 find_package(nlohmann_json 3.11.0 REQUIRED)
-target_link_libraries(dcss3d PRIVATE nlohmann_json::nlohmann_json)
+target_link_libraries(dcss3d_obj PRIVATE nlohmann_json::nlohmann_json)
 
 find_package(glm CONFIG REQUIRED)
-target_link_libraries(dcss3d PRIVATE glm::glm)
+target_link_libraries(dcss3d_obj PRIVATE glm::glm)
 
 find_package(spdlog REQUIRED)
-target_link_libraries(dcss3d PRIVATE spdlog::spdlog)
+target_link_libraries(dcss3d_obj PRIVATE spdlog::spdlog)
+
+# Main executable from object library
+add_executable(dcss3d)
+target_link_libraries(dcss3d PRIVATE dcss3d_obj)
 
 add_compile_options(-Wall -Wextra -Wpedantic)
 set(CMAKE_BUILD_TYPE Debug)
 
 add_compile_options(-fstandalone-debug)
 
-target_include_directories(dcss3d PRIVATE ${PROJECT_SOURCE_DIR}/imgui)
-target_include_directories(dcss3d PRIVATE ${PROJECT_SOURCE_DIR}/imgui/backends)
-target_include_directories(dcss3d PRIVATE ${PROJECT_SOURCE_DIR}/imgui/misc/cpp)
-
-target_include_directories(dcss3d PRIVATE mdspan/include)
+target_include_directories(dcss3d_obj PRIVATE ${PROJECT_SOURCE_DIR}/imgui)
+target_include_directories(dcss3d_obj PRIVATE ${PROJECT_SOURCE_DIR}/imgui/backends)
+target_include_directories(dcss3d_obj PRIVATE ${PROJECT_SOURCE_DIR}/imgui/misc/cpp)
+target_include_directories(dcss3d_obj PRIVATE mdspan/include)
 
 file(COPY ${PROJECT_SOURCE_DIR}/resources DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${PROJECT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR})
@@ -99,3 +103,34 @@ execute_process(
 
 file(COPY ${PROJECT_SOURCE_DIR}/dcss_server.py DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${PROJECT_SOURCE_DIR}/dcss_server_wrapper.sh DESTINATION ${CMAKE_BINARY_DIR})
+
+# Catch2 testing framework
+find_package(Catch2 3 REQUIRED)
+
+# Test executable - standalone unit tests
+add_executable(dcss3d_tests)
+target_compile_features(dcss3d_tests PUBLIC cxx_std_23)
+
+target_sources(dcss3d_tests PRIVATE
+    tests/main.cpp
+    tests/test_game_map.cpp
+    tests/test_player_state.cpp
+)
+
+target_link_libraries(dcss3d_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+target_include_directories(dcss3d_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_include_directories(dcss3d_tests PRIVATE mdspan/include)
+
+# Enable testing
+include(CTest)
+add_test(NAME dcss3d_tests COMMAND dcss3d_tests)
+
+# Add a convenience target for running tests
+add_custom_target(run_tests
+    COMMAND ${CMAKE_BINARY_DIR}/dcss3d_tests
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Running dcss3d tests"
+)
