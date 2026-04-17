@@ -179,48 +179,54 @@ int main(int argc, char* argv[])
 
             renderer.doRender(map, player.camera()); // imgui layout too
 
+            // Process ALL input FIRST (keyboard + mouse) before updating position.
+            // This ensures velocity changes are always detected, preventing infinite loops
+            // when the player hits a wall and needs to release movement keys.
+            
+            // Process keyboard events first
+            {
+                SDL_Event event;
+                while (SDL_PollEvent(&event)) {
+                    ImGui_ImplSDL3_ProcessEvent(&event);
+                    
+                    // Always process keyboard events for Escape key, regardless of ImGui capture state
+                    // This ensures we can always toggle the UI overlay even when in relative mouse mode
+                    if (event.type == SDL_EVENT_KEY_UP && event.key.scancode == SDL_SCANCODE_ESCAPE) {
+                        std::unique_ptr<Turn> turn = processInput(event, renderer, player, isDone);
+                        if (turn) {
+                            spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                            networkManager.sendMessage(turn->asMessage());
+                            break;
+                        }
+                    } else if (!(io.WantCaptureMouse || io.WantCaptureKeyboard)) {
+                        std::unique_ptr<Turn> turn = processInput(event, renderer, player, isDone);
+                        if (turn) {
+                            spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                            networkManager.sendMessage(turn->asMessage());
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Process mouse input separately from SDL_PollEvent to reduce overhead
+            if (!io.WantCaptureMouse) {
+                std::unique_ptr<Turn> turn = processMouseInput(player);
+                if (turn) {
+                    spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                    networkManager.sendMessage(turn->asMessage());
+                }
+            }
+            
+            // NOW update position and generate turn (after input is processed)
             gameTime.update();
-
+            
             std::unique_ptr<Turn> turn;
             turn = player.updatePosition(gameTime, map);
             if (turn) {
                 spdlog::debug("generated turn: {}", turn->asMessage().dump());
                 networkManager.sendMessage(turn->asMessage());
-                continue; // re-render before handling potentially turn-generating input
-                // TODO ^ this continue is why infinite loop, each render updatePosition updates the position so never gets to mouse or keyboard input...
-            }
-
-            // process mouse input separately from SDL_PollEvent to reduce overhead:
-            turn = nullptr;
-            if (!io.WantCaptureMouse)
-                turn = processMouseInput(player);
-            if (turn) {
-                spdlog::debug("generated turn: {}", turn->asMessage().dump());
-                networkManager.sendMessage(turn->asMessage());
-                continue;
-            }
-
-            SDL_Event event;
-            while (SDL_PollEvent(&event)) {
-                ImGui_ImplSDL3_ProcessEvent(&event);
-                
-                // Always process keyboard events for Escape key, regardless of ImGui capture state
-                // This ensures we can always toggle the UI overlay even when in relative mouse mode
-                if (event.type == SDL_EVENT_KEY_UP && event.key.scancode == SDL_SCANCODE_ESCAPE) {
-                    turn = processInput(event, renderer, player, isDone);
-                    if (turn) {
-                        spdlog::debug("generated turn: {}", turn->asMessage().dump());
-                        networkManager.sendMessage(turn->asMessage());
-                        break;
-                    }
-                } else if (!(io.WantCaptureMouse || io.WantCaptureKeyboard)) {
-                    turn = processInput(event, renderer, player, isDone);
-                    if (turn) {
-                        spdlog::debug("generated turn: {}", turn->asMessage().dump());
-                        networkManager.sendMessage(turn->asMessage());
-                        break;
-                    }
-                }
+                // No continue here - fall through to render, then loop back to process new input
             }
 
             // wait for 60fps
