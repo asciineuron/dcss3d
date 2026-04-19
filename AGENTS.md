@@ -10,21 +10,22 @@ dcss3d is envisioned to be a 3d renderer webview of a server session [Dungeon Cr
 
 - Before making a set of changes, draft out an implementation plan, including the what and why of the problem. Reach out to me to discuss before beginning implementation.
 - When making changes, ALWAYS stop before making a commit. Reach out to me to discuss what you have implemented and why, we can update and review your implementation plan, and only then will I ask you to make the commit.
-- When making changes affecting most graphical/gameplay aspects (i.e. anything but minor bugfixes), we need to have a playtest to verify your change is correct before moving on. Reach out to me to play when you are ready and I will report back.
-
+- If you need to test the game, you must stop and ask me to playtest for you. This will be needed to check if whatever issue is fixed. 
 - If you get stuck on a problem, try stepping back and considering the bigger picture. Are all your assumptions correct? Could the issue lie elsewhere? Often spiraling into micro-analysis is unproductive.
+
+- Keep track of your findings and progress in `WORK_NOTES.md`
 
 - Tech stack:
   - C++23 language
   - CMake build system
   - SDL3_GPU 3D framework
-  - Slang for shader development
-  - imgui for ui overlay
-  - mdspan for multi-dimensional array spanning
-  - nlohmann_json for json parsing
-  - glm for mathematics
-  - spdlog for logging
-  - unit test framework?
+  - Slang shader development
+  - imgui ui overlay
+  - mdspan multi-dimensional array spanning
+  - nlohmann_json json parsing
+  - glm mathematics
+  - spdlog logging
+  - Catch2 unit testing
   - crawl's upstream webtiles api, see `/Volumes/Ext/Code/crawl/crawl-ref/source/webserver/`
 
 ## External Documentation
@@ -38,4 +39,4 @@ dcss3d is envisioned to be a 3d renderer webview of a server session [Dungeon Cr
 
 ## Testing
 
-1. TODO: set up testing framework.
+1. Run `cd build && ctest`
