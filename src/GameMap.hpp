@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MessageQueue.hpp"
+#include "Turn.hpp"
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
 
@@ -57,6 +58,8 @@ public:
     using MapData = std::unordered_map<Pos2<int>, Tile>;
 
     void handleMessage(const json& message) override;
+
+    void shift(Direction moveDir);
 
     bool wouldCollide(const glm::vec2&) const;
 

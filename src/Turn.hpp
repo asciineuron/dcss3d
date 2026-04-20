@@ -32,6 +32,7 @@ class MoveTurn : public Turn {
 public:
     MoveTurn(Direction);
     json asMessage() const override;
+    Direction getDirection() const { return m_direction; }
 
 private:
     Direction m_direction;

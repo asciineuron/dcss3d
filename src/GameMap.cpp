@@ -1,4 +1,5 @@
 #include "GameMap.hpp"
+#include "Turn.hpp"
 #include "mdspan/mdspan.hpp"
 #include <iostream>
 #include <spdlog/spdlog.h>
@@ -7,17 +8,13 @@
 // use for future trial Pos2, don't need to do direction checking, just proximity
 bool GameMap::wouldCollide(const glm::vec2& testLoc) const
 {
-    // constexpr float collisionTolerance = 0.1f;
     for (const auto& [mapCoord, tile] : m_map) {
         if (tile.type() != MapType::Wall)
             continue;
         glm::vec2 renderCoords = mapCoordToRender(mapCoord);
-        if (std::abs(renderCoords.x - testLoc.x) < 0.5f) {
-            spdlog::debug("collision x!");
-            return true;
-        }
-        if (std::abs(renderCoords.y - testLoc.y) < 0.5f) {
-            spdlog::debug("collision y!");
+        if (std::abs(renderCoords.x - testLoc.x) < 0.5f &&
+            std::abs(renderCoords.y - testLoc.y) < 0.5f) {
+            spdlog::debug("collision at ({:.3f}, {:.3f})", renderCoords.x, renderCoords.y);
             return true;
         }
     }
@@ -29,6 +26,30 @@ void GameMap::handleMessage(const json& message)
     if (message["msg"] != "map")
         return;
     updateMap(message);
+}
+
+void GameMap::shift(Direction moveDir)
+{
+    if (moveDir == None || moveDir == Here)
+        return;
+
+    int dx = 0;
+    int dy = 0;
+
+    if (moveDir & North) dy += 1;
+    if (moveDir & South) dy -= 1;
+    if (moveDir & East)  dx -= 1;
+    if (moveDir & West)  dx += 1;
+
+    if (dx == 0 && dy == 0)
+        return;
+
+    MapData nextMap;
+    for (const auto& [pos, tile] : m_map) {
+        nextMap[{pos.x + dx, pos.y + dy}] = tile;
+    }
+    m_map = std::move(nextMap);
+    m_didRender = false;
 }
 
 MapType mapTypeFromMF(int mf)

@@ -8,6 +8,9 @@
 // But also affects camera.....
 
 // TODO where/how to handle this now?
+
+// Forward declare Direction enum from Turn.hpp
+enum Direction;
 class GameTime : public MessageHandler {
 public:
     /**
@@ -64,6 +67,7 @@ private:
     Camera m_camera; // TODO these shift too each render, should watch for map update? can then reset DO THIS IN HANDLE_MESSAGE
     float m_velX {};
     float m_velY {};
+    Direction m_lastMoveDirection { None }; // Track last move for camera adjustment on map update
 
     static constexpr float s_mouseSensitivity = 0.005;
 };

@@ -226,7 +226,10 @@ int main(int argc, char* argv[])
             if (turn) {
                 spdlog::debug("generated turn: {}", turn->asMessage().dump());
                 networkManager.sendMessage(turn->asMessage());
-                // No continue here - fall through to render, then loop back to process new input
+
+                if (auto* moveTurn = dynamic_cast<MoveTurn*>(turn.get())) {
+                    map.shift(moveTurn->getDirection());
+                }
             }
 
             // wait for 60fps
