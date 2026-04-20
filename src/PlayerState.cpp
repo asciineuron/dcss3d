@@ -82,9 +82,10 @@ void Player::updateView(const float mouse_dx, const float mouse_dy)
     m_camera.theta -= mouse_dx * s_mouseSensitivity;
     m_camera.phi -= mouse_dy * s_mouseSensitivity;
 
-    // wraparound into [0, 2pi] range:
+    // wraparound yaw into [0, 2pi] range:
     m_camera.theta = wrap(m_camera.theta, 0, 2 * pi);
-    m_camera.phi = wrap(m_camera.phi, 0, 2 * pi);
+    // clamp pitch to avoid flipping:
+    m_camera.phi = std::clamp(m_camera.phi, -pi_v<float> / 2.f + 0.01f, pi_v<float> / 2.f - 0.01f);
 }
 
 /**
