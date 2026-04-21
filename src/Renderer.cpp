@@ -48,8 +48,8 @@ SDL_GPUShader* loadShader(SDL_GPUDevice* device, const ShaderParameters& paramet
         entrypoint = "main";
     } else if (backendFormats & SDL_GPU_SHADERFORMAT_MSL) {
         format = SDL_GPU_SHADERFORMAT_MSL;
-        extension = ".msl";
-        entrypoint = "main0";
+        extension = ".metal";
+        entrypoint = "main_0";
     } else if (backendFormats & SDL_GPU_SHADERFORMAT_DXIL) {
         format = SDL_GPU_SHADERFORMAT_DXIL;
         extension = ".dxil";
@@ -105,8 +105,8 @@ Renderer::Renderer()
 
     m_windowID = SDL_GetWindowID(m_window);
 
-    if (!SDL_GetWindowSize(m_window, &m_windowWidth, &m_windowHeight))
-        throw std::runtime_error(std::format("SDL_GetWindowSize error: {}", SDL_GetError()));
+    if (!SDL_GetWindowSizeInPixels(m_window, &m_windowWidth, &m_windowHeight))
+        throw std::runtime_error(std::format("SDL_GetWindowSizeInPixels error: {}", SDL_GetError()));
 
     m_GPUDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL | SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL, true, nullptr);
     if (!m_GPUDevice)
@@ -118,7 +118,12 @@ Renderer::Renderer()
     if (!SDL_SetGPUSwapchainParameters(m_GPUDevice, m_window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC))
         throw std::runtime_error(std::format("SDL_SetGPUSwapchainParameters error: {}", SDL_GetError()));
 
-    m_mapCubeModel = std::make_unique<MapDisplacedBufferedModel>(m_GPUDevice, m_window, std::make_unique<Model>("cube1.obj"));
+    createDepthTexture();
+
+    m_mapCubeModel = std::make_unique<MapDisplacedBufferedModel>(
+        m_GPUDevice, m_window, std::make_unique<Model>("cube1.obj"),
+        ShaderParameters { std::string_view("position_color_shifted.vert"), 0, 1, 0, 0 },
+        ShaderParameters { std::string_view("lit.frag"), 0, 1, 0, 0 });
 
     // imgui:
     // Setup Dear ImGui context
@@ -162,6 +167,16 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
     // spdlog::debug("Swapchain texture acquired: {}", swapchainTexture ? "yes" : "no");
 
     if (swapchainTexture && !isMinimized) {
+        // Check for window resize and recreate depth texture if needed
+        int newWidth, newHeight;
+        SDL_GetWindowSizeInPixels(m_window, &newWidth, &newHeight);
+        if (newWidth != m_windowWidth || newHeight != m_windowHeight) {
+            m_windowWidth = newWidth;
+            m_windowHeight = newHeight;
+            releaseDepthTexture();
+            createDepthTexture();
+        }
+
         // upload all data via copy passes
         if (!map.didRender()) {
             pushMapToGPU(map, commandBuffer);
@@ -177,9 +192,30 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
         targetInfo.clear_color = (SDL_FColor) { 0.0f, 0.0f, 0.0f, 1.0f };
         targetInfo.load_op = SDL_GPU_LOADOP_CLEAR;
         targetInfo.store_op = SDL_GPU_STOREOP_STORE;
-        SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(commandBuffer, &targetInfo, 1, NULL);
+
+        SDL_GPUDepthStencilTargetInfo depthTargetInfo = {
+            .texture = m_depthTexture,
+            .clear_depth = 1.0f,
+            .load_op = SDL_GPU_LOADOP_CLEAR,
+            .store_op = SDL_GPU_STOREOP_DONT_CARE,
+            .stencil_load_op = SDL_GPU_LOADOP_DONT_CARE,
+            .stencil_store_op = SDL_GPU_STOREOP_DONT_CARE,
+            .cycle = true,
+            .clear_stencil = 0,
+            .mip_level = 0,
+            .layer = 0,
+        };
+
+        SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(commandBuffer, &targetInfo, 1, &depthTargetInfo);
 
         SDL_PushGPUVertexUniformData(commandBuffer, 0, glm::value_ptr(cameraView), sizeof(cameraView));
+
+        // Push light/camera data as fragment uniform
+        LightUniforms lightData = {
+            .lightPos = glm::vec4(camera.pos, 1.0f),
+            .cameraPos = glm::vec4(camera.pos, 1.0f),
+        };
+        SDL_PushGPUFragmentUniformData(commandBuffer, 0, &lightData, sizeof(lightData));
 
         m_mapCubeModel->draw(renderPass);
 
@@ -211,6 +247,8 @@ Renderer::~Renderer()
     // TODO causes segfault, maybe since child Model class frees afterwards?
     m_mapCubeModel->release();
 
+    releaseDepthTexture();
+
     ImGui_ImplSDL3_Shutdown();
     ImGui_ImplSDLGPU3_Shutdown();
     ImGui::DestroyContext();
@@ -220,6 +258,32 @@ Renderer::~Renderer()
     SDL_DestroyWindow(m_window);
 
     SDL_Quit();
+}
+
+void Renderer::createDepthTexture()
+{
+    SDL_GPUTextureCreateInfo depthCreateInfo = {
+        .type = SDL_GPU_TEXTURETYPE_2D,
+        .format = SDL_GPU_TEXTUREFORMAT_D16_UNORM,
+        .usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
+        .width = static_cast<Uint32>(m_windowWidth),
+        .height = static_cast<Uint32>(m_windowHeight),
+        .layer_count_or_depth = 1,
+        .num_levels = 1,
+        .sample_count = SDL_GPU_SAMPLECOUNT_1,
+        .props = 0,
+    };
+    m_depthTexture = SDL_CreateGPUTexture(m_GPUDevice, &depthCreateInfo);
+    if (!m_depthTexture)
+        throw std::runtime_error(std::format("SDL_CreateGPUTexture (depth) error: {}", SDL_GetError()));
+}
+
+void Renderer::releaseDepthTexture()
+{
+    if (m_depthTexture) {
+        SDL_ReleaseGPUTexture(m_GPUDevice, m_depthTexture);
+        m_depthTexture = nullptr;
+    }
 }
 
 Model::Model(std::string_view filename)
@@ -263,13 +327,52 @@ void Model::loadObj(std::string_view filename)
             continue;
         }
     }
+
+    // Compute per-face flat normals and expand indexed geometry to non-indexed.
+    // Each triangle gets its own 3 vertices with the face's normal.
+    // This duplicates shared vertices (e.g., cube corners appear 3 times) but
+    // gives correct per-face flat shading for lighting.
+    std::vector<glm::vec3> expandedVertices;
+    std::vector<glm::vec3> expandedNormals;
+    std::vector<Face> newFaces;
+
+    for (size_t f = 0; f < m_faces.size(); ++f) {
+        const auto& face = m_faces[f];
+        // Compute face normal from first 3 vertices (cross product of edges)
+        glm::vec3 v0 = m_vertices[face.vertexIndices[0]];
+        glm::vec3 v1 = m_vertices[face.vertexIndices[1]];
+        glm::vec3 v2 = m_vertices[face.vertexIndices[2]];
+        glm::vec3 edge1 = v1 - v0;
+        glm::vec3 edge2 = v2 - v0;
+        glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));
+
+        // Emit 3 vertices with position and normal for this triangle
+        uint32_t baseIdx = static_cast<uint32_t>(expandedVertices.size());
+        expandedVertices.push_back(v0);
+        expandedNormals.push_back(normal);
+        expandedVertices.push_back(v1);
+        expandedNormals.push_back(normal);
+        expandedVertices.push_back(v2);
+        expandedNormals.push_back(normal);
+
+        // New face references the expanded indices
+        newFaces.push_back({
+            { static_cast<Uint16>(baseIdx), static_cast<Uint16>(baseIdx + 1), static_cast<Uint16>(baseIdx + 2) },
+            { 0, 0, 0 }  // no texture indices
+        });
+    }
+
+    m_vertices = std::move(expandedVertices);
+    m_normals = std::move(expandedNormals);
+    m_faces = std::move(newFaces);
 }
 
 BufferedModel::BufferedModel(SDL_GPUDevice* gpu, SDL_Window* window, std::unique_ptr<Model> model,
     ShaderParameters vertex, ShaderParameters fragment)
     : m_model { std::move(model) }
     , m_GPUDevice { gpu }
-    , m_vertexBufSize { static_cast<Uint32>(sizeof(glm::vec3) * (m_model->vertices().size())) }
+    // Vertex data: position (3 floats) + normal (3 floats) = 6 floats per vertex
+    , m_vertexBufSize { static_cast<Uint32>(sizeof(glm::vec3) * 2 * (m_model->vertices().size())) }
     , m_indexBufSize { static_cast<Uint16>(sizeof(Uint16) * 3 * m_model->faces().size()) }
     , m_drawBufSize { sizeof(SDL_GPUIndexedIndirectDrawCommand) * 1 }
 {
@@ -309,20 +412,29 @@ void BufferedModel::uploadModel()
     SDL_GPUTransferBuffer* tempVertexIndexTransfer = SDL_CreateGPUTransferBuffer(
         m_GPUDevice, &tempVertexIndexTransferInfo);
 
-    glm::vec3* vertexTransfer = (glm::vec3*)SDL_MapGPUTransferBuffer(m_GPUDevice, tempVertexIndexTransfer, false);
-    memcpy(vertexTransfer, m_model->vertices().data(), m_model->vertices().size() * sizeof(glm::vec3));
+    // Interleaved vertex format: position (12 bytes) + normal (12 bytes) per vertex
+    struct VertexPN {
+        glm::vec3 pos;
+        glm::vec3 normal;
+    };
+    VertexPN* vertexTransfer = (VertexPN*)SDL_MapGPUTransferBuffer(m_GPUDevice, tempVertexIndexTransfer, false);
+    for (size_t i = 0; i < m_model->vertices().size(); i++) {
+        vertexTransfer[i].pos = m_model->vertices()[i];
+        vertexTransfer[i].normal = m_model->normals()[i];
+    }
 
+    // Index buffer: triangle i starts at index 3*i (vertex i*3, i*3+1, i*3+2)
+    // Since expanded vertices are non-indexed (each face has unique consecutive vertices)
     Uint16* indexTransfer = (Uint16*)&vertexTransfer[m_model->vertices().size()];
-    for (int i = 0; i < m_model->faces().size(); i++) {
-        indexTransfer[3 * i] = m_model->faces()[i].vertexIndices[0];
-        indexTransfer[3 * i + 1] = m_model->faces()[i].vertexIndices[1];
-        indexTransfer[3 * i + 2] = m_model->faces()[i].vertexIndices[2];
+    for (size_t i = 0; i < m_model->faces().size(); i++) {
+        indexTransfer[3 * i] = static_cast<Uint16>(3 * i);
+        indexTransfer[3 * i + 1] = static_cast<Uint16>(3 * i + 1);
+        indexTransfer[3 * i + 2] = static_cast<Uint16>(3 * i + 2);
     }
     SDL_UnmapGPUTransferBuffer(m_GPUDevice, tempVertexIndexTransfer);
 
     SDL_GPUIndexedIndirectDrawCommand* drawTransfer = (SDL_GPUIndexedIndirectDrawCommand*)SDL_MapGPUTransferBuffer(
         m_GPUDevice, m_drawTransferBuf, true);
-    // TODO: for wall, have more num_instances
     drawTransfer[0] = (SDL_GPUIndexedIndirectDrawCommand) {
         .num_indices = (Uint32)(3 * m_model->faces().size()),
         .num_instances = 1,
@@ -400,13 +512,15 @@ MapDisplacedBufferedModel::MapDisplacedBufferedModel(SDL_GPUDevice* gpu, SDL_Win
 
 void MapDisplacedBufferedModel::pushMapData(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
 {
-    // displacement, color info:
+    // displacement, color info (per-instance vertex buffer):
     DisplacementColorInfo* mappedDisplacementColor = (DisplacementColorInfo*)SDL_MapGPUTransferBuffer(
         m_GPUDevice, m_dataTransferBuf, true);
     for (auto idx = 0; const auto& [mapCoord, tile] : map.map()) {
         glm::vec2 renderCoords2D = mapCoordToRender(mapCoord);
-        mappedDisplacementColor[idx].pos = { renderCoords2D.x, renderCoords2D.y, 0.f };
-        mappedDisplacementColor[idx].type = std::to_underlying(tile.type());
+        mappedDisplacementColor[idx].shiftX = renderCoords2D.x;
+        mappedDisplacementColor[idx].shiftY = renderCoords2D.y;
+        mappedDisplacementColor[idx].tileType = static_cast<float>(std::to_underlying(tile.type()));
+        mappedDisplacementColor[idx].padding1 = 0.0f;
         mappedDisplacementColor[idx].color = mapTypeToColor(tile.type());
         // TODO: hard limit on # map entries
         if (++idx >= s_maxRenderCopies)
@@ -468,33 +582,73 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
     SDL_GPUShader* vertexShader = loadShader(m_GPUDevice, vertex);
     SDL_GPUShader* fragShader = loadShader(m_GPUDevice, fragment);
 
+    // Vertex format: position (12 bytes) + normal (12 bytes) = 24 bytes stride
+    // Per-instance vertex buffer: tile shift (12 bytes) + color (16 bytes) = 28 bytes
+    // Both buffers use VERTEX input rate (no INSTANCE — Metal restriction on vertex buffers)
     SDL_GPUVertexAttribute vertexAttributes[] = {
         { .location = 0,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .offset = 0 }
+            .offset = 0 },                       // position at offset 0
+        { .location = 1,
+            .buffer_slot = 0,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .offset = sizeof(glm::vec3) },       // normal at offset 12
+        { .location = 2,
+            .buffer_slot = 1,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .offset = 0 },                       // tile shift at offset 0
+        { .location = 3,
+            .buffer_slot = 1,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
+            .offset = sizeof(glm::vec3) }        // tile color at offset 12
     };
     SDL_GPUVertexBufferDescription vertexBufferDescriptions[] = {
         { .slot = 0,
-            .pitch = sizeof(glm::vec3),
+            .pitch = 2 * sizeof(glm::vec3),    // stride: position + normal
+            .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            .instance_step_rate = 0 },
+        { .slot = 1,
+            .pitch = sizeof(glm::vec3) + sizeof(glm::vec4),  // stride: shift + color
             .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
             .instance_step_rate = 0 }
     };
     // TODO add more vertex buffers here, one for map, one for each actor etc?
     SDL_GPUVertexInputState vertexInputState = {
         .vertex_buffer_descriptions = vertexBufferDescriptions,
-        .num_vertex_buffers = 1,
+        .num_vertex_buffers = 2,
         .vertex_attributes = vertexAttributes,
-        .num_vertex_attributes = 1,
+        .num_vertex_attributes = 4,             // position + normal + shift + color
     };
     SDL_GPUColorTargetDescription colorTargetDescriptions[] = {
         { .format = SDL_GetGPUSwapchainTextureFormat(
               m_GPUDevice, window) }
     };
     SDL_GPURasterizerState rasterizer_state = {
-        // .fill_mode = SDL_GPU_FILLMODE_FILL,
-        .fill_mode = SDL_GPU_FILLMODE_LINE,
-        .cull_mode = SDL_GPU_CULLMODE_FRONT
+        .fill_mode = SDL_GPU_FILLMODE_FILL,    // Filled polygons (not wireframe)
+        .cull_mode = SDL_GPU_CULLMODE_BACK,    // Cull back faces
+        .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
+        .depth_bias_constant_factor = 0.0f,
+        .depth_bias_clamp = 0.0f,
+        .depth_bias_slope_factor = 0.0f,
+        .enable_depth_bias = false,
+        .enable_depth_clip = true,
+    };
+    SDL_GPUDepthStencilState depthStencilState = {
+        .compare_op = SDL_GPU_COMPAREOP_LESS,  // Pass if new depth < stored depth
+        .back_stencil_state = {},
+        .front_stencil_state = {},
+        .compare_mask = 0,
+        .write_mask = 0,
+        .enable_depth_test = true,
+        .enable_depth_write = false,  // Don't write depth — imgui renders on top without depth write
+        .enable_stencil_test = false,
+    };
+    SDL_GPUMultisampleState multisampleState = {
+        .sample_count = SDL_GPU_SAMPLECOUNT_1,
+        .sample_mask = 0,
+        .enable_mask = false,
+        .enable_alpha_to_coverage = false,
     };
     SDL_GPUGraphicsPipelineCreateInfo pipelineInfo = {
         .vertex_shader = vertexShader,
@@ -502,9 +656,13 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         .vertex_input_state = vertexInputState,
         .primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
         .rasterizer_state = rasterizer_state,
+        .multisample_state = multisampleState,
+        .depth_stencil_state = depthStencilState,
         .target_info = {
             .color_target_descriptions = colorTargetDescriptions,
             .num_color_targets = 1,
+            .depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM,
+            .has_depth_stencil_target = true,
         }
     };
 
@@ -516,39 +674,36 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
     return pipeline;
 }
 
-void BufferedModel::setupDraw(SDL_GPURenderPass* renderPass)
-{
-    // bind resources:
-    SDL_BindGPUGraphicsPipeline(renderPass, m_pipeline);
-    // vertices:
-    SDL_GPUBufferBinding vertexBufferBinding = { .buffer = m_vertexBuffer, .offset = 0 };
-    SDL_BindGPUVertexBuffers(
-        renderPass, 0,
-        &vertexBufferBinding,
-        1);
-    // vertex index:
-    SDL_GPUBufferBinding indexBufferBinding = { .buffer = m_indexBuffer, .offset = 0 };
-    SDL_BindGPUIndexBuffer(
-        renderPass,
-        &indexBufferBinding,
-        SDL_GPU_INDEXELEMENTSIZE_16BIT);
-}
-
 void BufferedModel::draw(SDL_GPURenderPass* renderPass)
 {
     // TODO not tested without map displacement...
-    setupDraw(renderPass);
+    SDL_BindGPUGraphicsPipeline(renderPass, m_pipeline);
+
+    SDL_GPUBufferBinding vertexBufferBinding = { .buffer = m_vertexBuffer, .offset = 0 };
+    SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
+
+    SDL_GPUBufferBinding indexBufferBinding = { .buffer = m_indexBuffer, .offset = 0 };
+    SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 
     SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer, 0, 1);
 }
 
 void MapDisplacedBufferedModel::draw(SDL_GPURenderPass* renderPass)
 {
-    setupDraw(renderPass);
+    SDL_BindGPUGraphicsPipeline(renderPass, m_pipeline);
 
-    // map pos data:
-    SDL_BindGPUVertexStorageBuffers(renderPass, 0,
-        &(m_mapDataBuffer), 1);
+    // Bind vertex buffers:
+    // Slot 0: per-vertex position + normal (24 bytes per vertex)
+    SDL_GPUBufferBinding vertexBufferBinding = { .buffer = m_vertexBuffer, .offset = 0 };
+    SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
+
+    // Slot 1: per-instance data (shift + color)
+    SDL_GPUBufferBinding instanceBufferBinding = { .buffer = m_mapDataBuffer, .offset = 0 };
+    SDL_BindGPUVertexBuffers(renderPass, 1, &instanceBufferBinding, 1);
+
+    // Bind index buffer
+    SDL_GPUBufferBinding indexBufferBinding = { .buffer = m_indexBuffer, .offset = 0 };
+    SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 
     SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer, 0, 1);
 }

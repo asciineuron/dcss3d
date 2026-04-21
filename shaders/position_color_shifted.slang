@@ -9,55 +9,54 @@ enum map_type {
     MTYPE_COUNT
 };
 
-[[vk::binding(2)]]
+// UBO for viewproj matrix — binding 0, space1
+[[vk::binding(0)]]
 cbuffer UBO : register(b0, space1)
 {
     float4x4 viewproj : packoffset(c0);
 };
 
-[[vk::binding(0)]]
-// elem size: 32 bytes, see below
-ByteAddressBuffer data_buffer : register(t0, space2);
+// NOTE: data_buffer is NOT needed here — tile shift comes from a vertex attribute (TEXCOORD2).
+// The tile type is encoded in shiftData.z and looked up by the fragment shader.
 
 struct main_in {
     float3 position : TEXCOORD0;
+    float3 normal   : TEXCOORD1;
+    float3 shiftData : TEXCOORD2;  // instance: tile_x, tile_y, type
+    float4 colorData : TEXCOORD3; // instance: color RGBA
     uint id : SV_InstanceID;
 };
 
 struct main_out {
-    float4 color : TEXCOORD0;
-    float4 position : SV_Position;
+    float3 worldPos    : TEXCOORD0;
+    float3 worldNormal : TEXCOORD1;
+    float4 position   : SV_Position;
+    float3 shiftOut    : TEXCOORD2;  // pass through to fragment
+    float instanceId   : TEXCOORD3;   // instance ID as float
+    float4 tileColor   : TEXCOORD4;  // tile color from per-instance vertex attribute
 };
-
-float4x4 m_translate(float4x4 m, float3 v)
-{
-    // float x = v.x, y = v.y, z = v.z;
-    m[0][3] = v.x;
-    m[1][3] = v.y;
-    m[2][3] = v.z;
-    return m;
-}
 
 [shader("vertex")]
 main_out main(main_in input)
 {
-    // shift and use the appropriate color/texture
-    // see “GLSL std140 layout”, buffer needs 16 byte alignment
-    float tile_x = asfloat(data_buffer.Load(32 * input.id));
-    float tile_y = asfloat(data_buffer.Load(4 + 32 * input.id));
-    float tile_z = asfloat(data_buffer.Load(8 + 32 * input.id));
-    int type = asint(data_buffer.Load(12 + 32 * input.id));
-    float4 color = asfloat(data_buffer.Load4(16 + 32 * input.id));
+    float shiftY = 0.0f;
+    if (int(input.shiftData.z) == map_type::MTYPE_FLOOR || int(input.shiftData.z) == map_type::MTYPE_UNEXPLORED)
+        shiftY = -1.0f;
 
-    float3 shift = { tile_x, 0.0f, tile_y };
-    if (type == map_type::MTYPE_FLOOR || type == map_type::MTYPE_UNEXPLORED)
-        shift.y = -1.0f;
-
+    float3 shift = { input.shiftData.x, shiftY, input.shiftData.y };
     float4x4 tile_translate = IDENTITY_MATRIX;
-    tile_translate = m_translate(tile_translate, shift);
+    tile_translate[0][3] = shift.x;
+    tile_translate[1][3] = shift.y;
+    tile_translate[2][3] = shift.z;
+
+    float4 worldPos4 = mul(tile_translate, float4(input.position, 1.0f));
 
     main_out output;
-    output.position = mul(viewproj, mul(tile_translate, float4(input.position, 1.0f)));
-    output.color = color;
+    output.position = mul(viewproj, worldPos4);
+    output.worldPos = worldPos4.xyz;
+    output.worldNormal = input.normal;
+    output.shiftOut = input.shiftData;
+    output.instanceId = float(input.id);
+    output.tileColor = input.colorData;
     return output;
 }

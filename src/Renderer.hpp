@@ -22,12 +22,18 @@ struct Face {
     std::array<Uint16, 3> textureIndices;
 };
 
+struct LightUniforms {
+    glm::vec4 lightPos;    // xyz = camera world position
+    glm::vec4 cameraPos;   // xyz = camera world position
+};
+
 class Model {
 public:
     Model(std::string_view filename);
 
     const std::vector<glm::vec3>& vertices() const { return m_vertices; }
     const std::vector<glm::vec2>& uvs() const { return m_uvs; }
+    const std::vector<glm::vec3>& normals() const { return m_normals; }
     const std::vector<Face>& faces() const { return m_faces; }
 
     friend std::ostream& operator<<(std::ostream&, const Model&);
@@ -35,6 +41,7 @@ public:
 private:
     std::vector<glm::vec3> m_vertices;
     std::vector<glm::vec2> m_uvs;
+    std::vector<glm::vec3> m_normals;
     std::vector<Face> m_faces;
     std::string m_name;
     const std::string m_resourcePath;
@@ -62,16 +69,13 @@ public:
 
     virtual void draw(SDL_GPURenderPass*);
 
-protected: // needed by MapDisplacedBufferedModel too
+protected:
     SDL_GPUDevice* m_GPUDevice;
     std::unique_ptr<Model> m_model; // TODO no need for ptr, just Model;
     SDL_GPUBuffer* m_drawBuffer {}; // receives from m_drawTransferBuf, # indices + instances
     SDL_GPUTransferBuffer* m_drawTransferBuf {}; // SDL_GPUIndexedIndirectDrawCommand
     Uint32 m_drawBufSize;
 
-    void setupDraw(SDL_GPURenderPass*); // binds buffers and pipelines always needed
-
-private:
     SDL_GPUGraphicsPipeline* m_pipeline {};
     SDL_GPUBuffer* m_vertexBuffer {}; // vertex and index only need an initial upload
     SDL_GPUBuffer* m_indexBuffer {}; // ^ so don't need to store their temp transfer buffer here
@@ -88,7 +92,7 @@ class MapDisplacedBufferedModel : public BufferedModel {
 public:
     MapDisplacedBufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { std::string_view("position_color_shifted.vert"), 0, 1, 1, 0 },
-        ShaderParameters fragment = { std::string_view("vert_input_color.frag"), 0, 0, 0, 0 });
+        ShaderParameters fragment = { std::string_view("lit.frag"), 0, 1, 0, 0 });
     ~MapDisplacedBufferedModel();
 
     void release() override;
@@ -102,9 +106,11 @@ private:
     bool m_hasReleased;
 
     struct DisplacementColorInfo {
-        glm::vec3 pos;
-        uint32_t type;
-        glm::vec4 color;
+        float shiftX;     // tile_x
+        float shiftY;     // tile_y
+        float tileType;   // type as float
+        float padding1;   // alignment padding (4 floats = 16 bytes, matches vec4 alignment)
+        glm::vec4 color;  // tile color RGBA
     };
 
     static constexpr unsigned s_maxRenderCopies = 289; // 15^2 standard, 17^2 max, for Barachi
@@ -112,7 +118,6 @@ private:
 
 std::ostream& operator<<(std::ostream& os, const Model& model);
 
-class GameMap;
 class Renderer {
 public:
     Renderer();
@@ -146,7 +151,12 @@ private:
     std::atomic_uint64_t m_renderCount;
     bool m_renderUI; // toggle to disable imgui overlay
 
+    // Depth buffer for proper filled polygon rendering
+    SDL_GPUTexture* m_depthTexture {};
+
     void pushMapToGPU(const GameMap&, SDL_GPUCommandBuffer*);
+    void createDepthTexture();
+    void releaseDepthTexture();
 
     static constexpr unsigned s_winW = 1920;
     static constexpr unsigned s_winH = 1080;
