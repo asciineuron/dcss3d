@@ -2,10 +2,10 @@
 
 // from game.h
 enum map_type {
-    MTYPE_NONE,
     MTYPE_WALL,
     MTYPE_FLOOR,
-    MTYPE_UNKNOWN,
+    MTYPE_UNEXPLORED,
+    MTYPE_OTHER,
     MTYPE_COUNT
 };
 
@@ -50,7 +50,7 @@ main_out main(main_in input)
     float4 color = asfloat(data_buffer.Load4(16 + 32 * input.id));
 
     float3 shift = { tile_x, 0.0f, tile_y };
-    if (type == map_type::MTYPE_FLOOR)
+    if (type == map_type::MTYPE_FLOOR || type == map_type::MTYPE_UNEXPLORED)
         shift.y = -1.0f;
 
     float4x4 tile_translate = IDENTITY_MATRIX;
