@@ -14,28 +14,6 @@
 
 namespace fs = std::filesystem;
 
-glm::vec4 mapTypeToColor(MapType type)
-{
-    using enum MapType;
-    switch (type) {
-    case Wall:
-        return { 0.5f, 0.5f, 0.0f, 1.0f };
-        break;
-    case Floor:
-        return { 0.0f, 0.5f, 0.0f, 1.0f };
-        break;
-    case Unexplored:
-        return { 0.5f, 0.5f, 0.5f, 1.0f };
-        break;
-    case Other:
-        return { 0.0f, 0.5f, 0.5f, 1.0f };
-        break;
-    default:
-        throw std::logic_error("invalid MapType specified");
-        break;
-    }
-}
-
 glm::mat4 Camera::toViewProjection() const
 {
     float cosPhi = std::cos(phi);

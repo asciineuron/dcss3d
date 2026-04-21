@@ -4,6 +4,7 @@
 #include "Turn.hpp"
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
+#include <optional>
 
 enum class MapType {
     Wall,
@@ -69,6 +70,10 @@ public:
     const bool didRender() const { return m_didRender; };
     void setDidRender(bool didRender) { m_didRender = didRender; };
 
+    struct Bounds { int x_min, x_max, y_min, y_max; };
+    Bounds getBounds() const;
+    std::optional<MapType> getTileAt(int x, int y) const;
+
     friend std::ostream& operator<<(std::ostream&, const GameMap&);
     std::string asciiView() const;
 
@@ -77,6 +82,8 @@ private:
     bool m_didRender {};
     void updateMap(const json& message); // call from handleMessage()
 };
+
+glm::vec4 mapTypeToColor(MapType type);
 
 // takes map index and converts to its *center* in render coords
 inline glm::vec2 mapCoordToRender(const Pos2<int>& coord)

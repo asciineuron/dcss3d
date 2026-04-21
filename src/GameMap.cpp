@@ -5,6 +5,28 @@
 #include <spdlog/spdlog.h>
 #include <string>
 
+glm::vec4 mapTypeToColor(MapType type)
+{
+    using enum MapType;
+    switch (type) {
+    case Wall:
+        return { 0.5f, 0.5f, 0.0f, 1.0f };
+        break;
+    case Floor:
+        return { 0.0f, 0.5f, 0.0f, 1.0f };
+        break;
+    case Unexplored:
+        return { 0.5f, 0.5f, 0.5f, 1.0f };
+        break;
+    case Other:
+        return { 0.0f, 0.5f, 0.5f, 1.0f };
+        break;
+    default:
+        throw std::logic_error("invalid MapType specified");
+        break;
+    }
+}
+
 // use for future trial Pos2, don't need to do direction checking, just proximity
 bool GameMap::wouldCollide(const glm::vec2& testLoc) const
 {
@@ -118,6 +140,28 @@ std::string GameMap::asciiView() const
     }
 
     return asciified;
+}
+
+GameMap::Bounds GameMap::getBounds() const
+{
+    int x_min = 0, x_max = 0, y_min = 0, y_max = 0;
+
+    for (const auto& loc : m_map) {
+        if (loc.first.x < x_min) x_min = loc.first.x;
+        if (loc.first.x > x_max) x_max = loc.first.x;
+        if (loc.first.y < y_min) y_min = loc.first.y;
+        if (loc.first.y > y_max) y_max = loc.first.y;
+    }
+    return { x_min, x_max, y_min, y_max };
+}
+
+std::optional<MapType> GameMap::getTileAt(int x, int y) const
+{
+    auto it = m_map.find({ x, y });
+    if (it != m_map.end()) {
+        return it->second.type();
+    }
+    return std::nullopt;
 }
 
 void GameMap::updateMap(const json& message)

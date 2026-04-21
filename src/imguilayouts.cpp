@@ -28,11 +28,31 @@ void displayMap(const GameMap& map)
 {
     ImGui::Begin("map");
 
-    // std::stringstream mapstr;
-    // mapstr << map;
-    // ImGui::Text("map:\n%s", mapstr.str().c_str());
-    std::string mapView = map.asciiView();
-    ImGui::Text("map:\n%s", mapView.c_str());
+    ImGui::Text("map:");
+    
+    auto bounds = map.getBounds();
+    for (int y = bounds.y_min; y <= bounds.y_max; ++y) {
+        for (int x = bounds.x_min; x <= bounds.x_max; ++x) {
+            auto typeOpt = map.getTileAt(x, y);
+            if (!typeOpt) {
+                ImGui::Text(" ");
+                ImGui::SameLine();
+                continue;
+            }
+
+            MapType type = *typeOpt;
+            if (x == 0 && y == 0) {
+                // Blinking red color for player
+                float alpha = (sinf(ImGui::GetTime() * 8.0f) * 0.5f) + 0.5f;
+                ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, alpha), "%d", static_cast<int>(type));
+            } else {
+                glm::vec4 color = mapTypeToColor(type);
+                ImGui::TextColored(ImVec4(color.r, color.g, color.b, color.a), "%d", static_cast<int>(type));
+            }
+            ImGui::SameLine();
+        }
+        ImGui::NewLine();
+    }
 
     ImGui::End();
 }
