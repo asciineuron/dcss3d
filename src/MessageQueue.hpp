@@ -40,8 +40,10 @@ public:
     // TODO: some way to view these unified/interleaved by timestamps?
 
     void chooseCharacter(std::array<char,3> speciesBackgroundWeapon = {'b', 'i', 'c'});
+    bool isConnected() const { return m_isConnected; }
 
 private:
+    std::atomic<bool> m_isConnected;
     std::vector<json> m_responseBacklog;
     std::string m_socketPath;
     int m_sockfd;

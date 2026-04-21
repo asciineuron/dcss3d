@@ -37,6 +37,7 @@ void processMessages(handlerConfig& config, std::span<json> messages)
 
 NetworkManager::NetworkManager(std::string_view socketPath)
     : m_isPolling { false }
+    , m_isConnected { false }
     , m_socketPath { socketPath }
 {
     if ((m_sockfd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
@@ -48,31 +49,32 @@ NetworkManager::NetworkManager(std::string_view socketPath)
     spdlog::debug("socket path: '{}'", m_socketPath);
 
     if (connect(m_sockfd, (struct sockaddr*)&remote, sizeof(struct sockaddr_un)) == -1) {
-        if (errno == ECONNREFUSED) {
-            // if socket not open yet, keep trying for up to s_connectTimeoutSec seconds
+        if (errno == ECONNREFUSED || errno == ENOENT) {
             uint64_t start = SDL_GetTicks();
             uint64_t now = start;
             bool hasConnected = false;
-            // TODO 2/25 replace SDL tick time with proper std chrono implementation cast to seconds
+
             while (!hasConnected && now - start < 1000 * s_connectTimeoutSec) {
-                // keep trying to connect. if fail for any reason other than connection refused, abort. break loop when successful and hasConnected
                 if (connect(m_sockfd, (struct sockaddr*)&remote, sizeof(struct sockaddr_un)) == -1) {
-                    if (errno != ECONNREFUSED)
+                    if (errno != ECONNREFUSED && errno != ENOENT) {
                         throw std::runtime_error(std::format("socket connect failure for socket path {}: {}", socketPath, std::strerror(errno)));
-                    else {
-                        now = SDL_GetTicks();
-                        continue;
                     }
+                    SDL_Delay(100);
+                    now = SDL_GetTicks();
+                } else {
+                    hasConnected = true;
                 }
-                hasConnected = true;
-                break;
             }
-            if (!hasConnected)
-                throw std::runtime_error(std::format("socket still failed to connect"));
+
+            if (!hasConnected) {
+                throw std::runtime_error(std::format("socket still failed to connect after {}s", s_connectTimeoutSec));
+            }
+        } else {
+            throw std::runtime_error(std::format("socket connect failure for socket path {}: {}", socketPath, std::strerror(errno)));
         }
-        throw std::runtime_error(std::format("socket connect failure for socket path {}: {}", socketPath, std::strerror(errno)));
     }
 
+    m_isConnected = true;
     pipe(m_pipeCancel);
 
     m_pollfds[0] = { .fd = m_sockfd, .events = POLLIN };
@@ -92,6 +94,10 @@ NetworkManager::~NetworkManager()
 
 void NetworkManager::sendMessage(const json& message)
 {
+    if (!m_isConnected) {
+        spdlog::error("Attempted to send message while disconnected");
+        return;
+    }
     std::string messageString = message.dump();
 
     // save send history
@@ -104,8 +110,11 @@ void NetworkManager::sendMessage(const json& message)
     uint32_t messageLength = static_cast<uint32_t>(messageString.length());
     spdlog::debug("sending message '{}'", messageString);
 
-    if (send(m_sockfd, &messageLength, sizeof(messageLength), 0) != sizeof(messageLength))
-        throw std::runtime_error(std::format("send failure: {}", std::strerror(errno)));
+    if (send(m_sockfd, &messageLength, sizeof(messageLength), 0) != sizeof(messageLength)) {
+        spdlog::error("send failure: {}", std::strerror(errno));
+        m_isConnected = false;
+        return;
+    }
 
     int totSent = 0;
     int thisSend = 0;
@@ -114,7 +123,9 @@ void NetworkManager::sendMessage(const json& message)
                  messageLength - totSent, 0))
             < 1) {
             // 0 for disconnect is also fatal
-            throw std::runtime_error(std::format("send failure: {}", std::strerror(errno)));
+            spdlog::error("send failure: {}", std::strerror(errno));
+            m_isConnected = false;
+            return;
         }
         totSent += thisSend;
     }
@@ -166,14 +177,24 @@ void NetworkManager::pollLoop()
         }
 
         if (m_pollfds[0].revents & POLLHUP) {
+            spdlog::error("socket hangup");
+            m_isConnected = false;
             m_isPolling = false;
-            throw std::runtime_error("socket hangup");
+            break;
         }
 
         uint32_t responseLength;
-        if (recv(m_sockfd, &responseLength, sizeof(responseLength), 0) != sizeof(responseLength)) {
+        int recvResult = recv(m_sockfd, &responseLength, sizeof(responseLength), 0);
+        if (recvResult == 0) {
+            spdlog::error("socket closed by peer");
+            m_isConnected = false;
             m_isPolling = false;
-            throw std::runtime_error(std::format("recv failure: {}", std::strerror(errno)));
+            break;
+        } else if (recvResult != sizeof(responseLength)) {
+            spdlog::error("recv failure: {}", std::strerror(errno));
+            m_isConnected = false;
+            m_isPolling = false;
+            break;
         }
         spdlog::debug("got response length: {}", responseLength);
 
@@ -184,14 +205,22 @@ void NetworkManager::pollLoop()
         uint32_t bytesLeft = responseLength;
         uint32_t currentBytes = 0;
         while (bytesLeft > 0) {
-            if ((currentBytes = recv(m_sockfd, &m_responseBuffer[bytesRead], bytesLeft, 0)) == -1) {
+            if ((currentBytes = recv(m_sockfd, &m_responseBuffer[bytesRead], bytesLeft, 0)) <= 0) {
+                if (currentBytes == 0)
+                    spdlog::error("socket closed during data recv");
+                else
+                    spdlog::error("recv failure: {}", std::strerror(errno));
+                m_isConnected = false;
                 m_isPolling = false;
-                throw std::runtime_error(std::format("recv failure: {}", std::strerror(errno)));
+                break;
             }
             bytesRead += currentBytes;
             bytesLeft -= currentBytes;
             spdlog::debug("just read {} bytes of data", currentBytes);
         }
+
+        if (!m_isPolling)
+            break;
 
         if (m_responseBuffer.size() == 0)
             continue;
