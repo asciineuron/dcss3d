@@ -61,6 +61,19 @@ void networkMenu(NetworkManager& net)
 {
     ImGui::Begin("network");
 
+    // Connection status indicator
+    if (net.isConnected()) {
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Connected");
+    } else {
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Disconnected");
+    }
+
+    if (ImGui::Button("Reconnect")) {
+        net.reconnect();
+    }
+
+    ImGui::Separator();
+
     if (ImGui::Button("send network login")) {
         net.sendMessage(loginMessage("asciineuron", "password"));
     }

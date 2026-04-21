@@ -293,3 +293,20 @@ std::vector<json> NetworkManager::getNewMessages()
     }
     return poppedMessages;
 }
+
+void NetworkManager::reconnect()
+{
+    spdlog::info("Attempting to reconnect...");
+
+    // Send reconnect message to Python server
+    // This is a special message that tells the server to reconnect to DCSS
+    if (m_isConnected && m_sockfd >= 0) {
+        constexpr std::string reconnectStr = "__RECONNECT__";
+        uint32_t msgLen = static_cast<uint32_t>(reconnectStr.length());
+        send(m_sockfd, &msgLen, sizeof(msgLen), 0);
+        send(m_sockfd, reconnectStr.c_str(), msgLen, 0);
+        spdlog::info("Sent reconnect signal to server");
+    } else {
+        spdlog::error("Cannot send reconnect signal: socket not connected");
+    }
+}

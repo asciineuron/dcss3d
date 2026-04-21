@@ -60,12 +60,25 @@ class DCSSClient:
 
         # list json msg data as dicts, pop to get next network message
         self._message_dicts = deque()
+        self._is_connected = True
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self._websock.close()
+        self.close()
+
+    def close(self):
+        self._is_connected = False
+        if self._websock:
+            try:
+                self._websock.close()
+            except Exception:
+                pass
+        self._websock = None
+
+    def is_connected(self):
+        return self._is_connected and self._websock is not None
 
     def __iter__(self):
         return self.messages(as_string=True)
@@ -105,8 +118,18 @@ class DCSSClient:
         self._choose_character()
 
     def send(self, message):
-        logger.debug(f"sending string: {message}")
-        self._websock.send(message)
+        if not self._is_connected or self._websock is None:
+            logger.error("Cannot send message: WebSocket not connected")
+            return
+        try:
+            logger.debug(f"sending string: {message}")
+            self._websock.send(message)
+        except ConnectionClosed as e:
+            logger.error(f"Connection closed while sending: {e}")
+            self._is_connected = False
+        except Exception as e:
+            logger.error(f"Error sending message: {e}")
+            self._is_connected = False
 
     def fileno(self):
         # for polling
@@ -126,14 +149,32 @@ class DCSSClient:
 
     def _get_server_messages(self, timeout=None):
         """Receives a message from the server, decodes it, and appends all json messages to the queue"""
-        json_response = json.loads(self._get_decoded_response(timeout))
-        if json_response.get("msg") is not None:
-            # response is a single message dict
-            self._message_dicts.append(json_response)
-        else:
-            # response is an array of message dicts
-            messages = json_response["msgs"]
-            self._message_dicts.extend(messages)
+        if not self._is_connected or self._websock is None:
+            logger.debug("WebSocket not connected, skipping message receive")
+            return
+        try:
+            response = self._websock.recv(timeout=timeout, decode=False)
+            decoded_response = self._decode_decompress_server_response(response)
+            logger.debug(
+                f"server response string: {decoded_response}\nwith length: {len(decoded_response)}"
+            )
+            json_response = json.loads(decoded_response)
+            if json_response.get("msg") is not None:
+                # response is a single message dict
+                self._message_dicts.append(json_response)
+            else:
+                # response is an array of message dicts
+                messages = json_response["msgs"]
+                self._message_dicts.extend(messages)
+        except TimeoutError:
+            # Normal timeout, no message available
+            pass
+        except ConnectionClosed as e:
+            logger.error(f"Connection closed while receiving: {e}")
+            self._is_connected = False
+        except Exception as e:
+            logger.error(f"Error receiving server message: {e}")
+            self._is_connected = False
 
     def messages(self, as_string=False, timeout=None):
         """If messsage queue is empty, recv() a new server response, otherwise pop the next saved message dict"""
@@ -197,6 +238,11 @@ class DCSSUnixStreamHandler(socketserver.StreamRequestHandler):
     """Connects to dcss websocket and streams data to/from local dcss3d client."""
 
     # keeps socket open for duration of game, only needs to handle one request
+    RECONNECT_MSG = "__RECONNECT__"
+
+    def _create_client(self):
+        """Create a new DCSSClient connection."""
+        return DCSSClient(socket.create_connection((HOST, PORT)))
 
     def handle(self):
         poll = select.poll()
@@ -204,8 +250,11 @@ class DCSSUnixStreamHandler(socketserver.StreamRequestHandler):
         # add debug user input from this stdin:
         poll.register(sys.stdin.fileno(), POLLIN | POLLHUP)
 
-        with DCSSClient(socket.create_connection((HOST, PORT))) as dcss_client:
+        dcss_client = None
+        try:
+            dcss_client = self._create_client()
             poll.register(dcss_client.fileno(), POLLIN | POLLHUP)
+            logger.info("WebSocket connection established")
 
             # TODO 2-26 add to c++ instead
             # dcss_client.login(USERNAME, PASSWORD)
@@ -215,6 +264,13 @@ class DCSSUnixStreamHandler(socketserver.StreamRequestHandler):
                 if any(
                     event & (POLLHUP | POLLNVAL | POLLERR) for _, event in fd_event_list
                 ):
+                    # Check which fd had the event
+                    for fd, event in fd_event_list:
+                        if event & (POLLHUP | POLLNVAL | POLLERR):
+                            if fd == self.request.fileno():
+                                logger.info("Client disconnected")
+                            elif dcss_client and fd == dcss_client.fileno():
+                                logger.info("DCSS server disconnected")
                     break
 
                 # check for game messages
@@ -227,10 +283,31 @@ class DCSSUnixStreamHandler(socketserver.StreamRequestHandler):
                     if fd == self.request.fileno():
                         if not event & POLLIN:
                             continue
-                        # get client response:
+                        # Check for reconnect message
+                        msg_len_bytes = self.rfile.read(4)
+                        if len(msg_len_bytes) < 4:
+                            logger.debug("Client sent incomplete message length")
+                            continue
                         msg_len = int.from_bytes(
-                            self.rfile.read(4), byteorder=sys.byteorder
+                            msg_len_bytes, byteorder=sys.byteorder
                         )
+                        if msg_len == len(self.RECONNECT_MSG) + 4:  # 4 bytes for length + message
+                            msg_body = self.rfile.read(msg_len).decode("ascii", errors="ignore")
+                            if msg_body == self.RECONNECT_MSG:
+                                logger.info("Received reconnect request from client")
+                                # Clean up old connection
+                                if dcss_client:
+                                    poll.unregister(dcss_client.fileno())
+                                    dcss_client.close()
+                                    dcss_client = None
+                                # Try to reconnect
+                                try:
+                                    dcss_client = self._create_client()
+                                    poll.register(dcss_client.fileno(), POLLIN | POLLHUP)
+                                    logger.info("WebSocket reconnection successful")
+                                except Exception as e:
+                                    logger.error(f"Reconnection failed: {e}")
+                                continue
                         msg = self.rfile.read(msg_len).decode("ascii")
                         logger.debug(
                             f"received client message: {msg}, with len: {msg_len}"
@@ -244,6 +321,13 @@ class DCSSUnixStreamHandler(socketserver.StreamRequestHandler):
                     #     input_line = sys.stdin.readline().strip()
                     #     input_msg = {"msg": "input", "text": input_line}
                     #     dcss_client.send(json.dumps(input_msg))
+
+        except Exception as e:
+            logger.error(f"Handler error: {e}")
+        finally:
+            if dcss_client:
+                dcss_client.close()
+            logger.info("Handler cleanup complete")
 
 
 class FileDCSSUnixStreamServer(socketserver.UnixStreamServer):

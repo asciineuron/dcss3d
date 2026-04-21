@@ -41,6 +41,7 @@ public:
 
     void chooseCharacter(std::array<char,3> speciesBackgroundWeapon = {'b', 'i', 'c'});
     bool isConnected() const { return m_isConnected; }
+    void reconnect();
 
 private:
     std::atomic<bool> m_isConnected;
