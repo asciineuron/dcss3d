@@ -80,7 +80,9 @@ public:
 private:
     MapData m_map;
     bool m_didRender {};
+    Bounds m_bounds { 0, 0, 0, 0 };
     void updateMap(const json& message); // call from handleMessage()
+    void updateBounds();
 };
 
 glm::vec4 mapTypeToColor(MapType type);

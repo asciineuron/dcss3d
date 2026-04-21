@@ -71,6 +71,7 @@ void GameMap::shift(Direction moveDir)
         nextMap[{pos.x + dx, pos.y + dy}] = tile;
     }
     m_map = std::move(nextMap);
+    updateBounds();
     m_didRender = false;
 }
 
@@ -144,6 +145,11 @@ std::string GameMap::asciiView() const
 
 GameMap::Bounds GameMap::getBounds() const
 {
+    return m_bounds;
+}
+
+void GameMap::updateBounds()
+{
     int x_min = 0, x_max = 0, y_min = 0, y_max = 0;
 
     for (const auto& loc : m_map) {
@@ -152,7 +158,7 @@ GameMap::Bounds GameMap::getBounds() const
         if (loc.first.y < y_min) y_min = loc.first.y;
         if (loc.first.y > y_max) y_max = loc.first.y;
     }
-    return { x_min, x_max, y_min, y_max };
+    m_bounds = { x_min, x_max, y_min, y_max };
 }
 
 std::optional<MapType> GameMap::getTileAt(int x, int y) const
@@ -186,6 +192,7 @@ void GameMap::updateMap(const json& message)
         m_map[pos] = Tile(type);
     }
 
+    updateBounds();
     m_didRender = false;
 
     // std::cerr << "new map data: \n"
