@@ -7,6 +7,7 @@
 #include "imgui_impl_sdlgpu3.h"
 #include "imguilayouts.hpp"
 #include <SDL3/SDL.h>
+#include "imgui_internal.h"
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_scancode.h>
 #include <cstdio>
@@ -19,6 +20,9 @@
 #include <string>
 #include <sys/wait.h>
 #include <unistd.h>
+
+// Layout filename (relative to working directory)
+constexpr const char* LAYOUT_FILENAME = "window_layout.json";
 
 std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, Renderer& renderer, bool& isDone)
 {
@@ -140,6 +144,72 @@ void stopRelayServer(pid_t child)
     waitpid(child, nullptr, 0);
 }
 
+// Callback to get current window layout (position and size)
+WindowLayout getWindowLayoutCallback(const char* windowName)
+{
+    WindowLayout layout;
+    layout.name = windowName;
+
+    ImGuiWindow* window = ImGui::FindWindowByName(windowName);
+    if (window) {
+        ImVec2 pos = window->Pos;
+        ImVec2 size = window->SizeFull;
+        layout.posX = pos.x;
+        layout.posY = pos.y;
+        layout.sizeX = size.x;
+        layout.sizeY = size.y;
+        layout.isCollapsed = window->Collapsed;
+        layout.isValid = true;
+    } else {
+        // Window not found, return invalid layout
+        layout.isValid = false;
+    }
+
+    return layout;
+}
+
+// Apply a single window's layout (position and size)
+// Uses ImGuiCond_Always to apply explicitly when user loads a layout
+void applyWindowLayout(const char* windowName, const WindowLayout& layout)
+{
+    spdlog::debug("Applying layout for '{}': pos=({},{}), size=({},{}), valid={}",
+                  windowName, layout.posX, layout.posY, layout.sizeX, layout.sizeY, layout.isValid);
+    ImGui::SetNextWindowPos(ImVec2(layout.posX, layout.posY), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(layout.sizeX, layout.sizeY), ImGuiCond_Always);
+    if (layout.isCollapsed) {
+        ImGui::SetNextWindowCollapsed(true, ImGuiCond_Always);
+    }
+}
+
+// Apply reset layout (cascading from top-left, auto-sized)
+// Uses ImGuiCond_Always to apply explicitly when user resets
+void applyResetLayout(const char* windowName, int index)
+{
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 basePos = viewport->Pos;
+
+    // Cascade windows: each 60px offset from previous
+    float offset = 60.0f * index;
+    ImGui::SetNextWindowPos(ImVec2(basePos.x + offset, basePos.y + offset), ImGuiCond_Always);
+    // Size 0,0 means auto-size
+    ImGui::SetNextWindowSize(ImVec2(0, 0), ImGuiCond_Always);
+}
+
+// Get index for a window name (for cascading reset)
+int getWindowIndex(const char* windowName)
+{
+    static const std::vector<std::string> windowNames = {
+        "Demo", "player", "map", "network", "renderer", "settings"
+    };
+
+    for (int i = 0; i < static_cast<int>(windowNames.size()); ++i) {
+        if (windowNames[i] == windowName) {
+            return i;
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char* argv[])
 {
     spdlog::set_level(spdlog::level::debug);
@@ -158,6 +228,9 @@ int main(int argc, char* argv[])
 
         handlerConfig responseHandlers = { { "map", { player, gameTime, map } } };
 
+        // Set up window layout callback for save functionality
+        setWindowLayoutCallback(getWindowLayoutCallback);
+
         bool isDone = false;
         while (!isDone) {
             std::vector<json> responses = networkManager.getNewMessages();
@@ -168,12 +241,82 @@ int main(int argc, char* argv[])
             ImGui_ImplSDL3_NewFrame();
             ImGui::NewFrame();
 
-            // imgui functions here
-            ImGui::ShowDemoWindow();
+            // Check pending layout actions
+            const bool shouldReset = windowLayoutNeedsReset();
+            const WindowLayout* pendingLayout = getPendingLayout();
+            const char* pendingName = getPendingLayoutName();
+            const size_t pendingLayoutCount = getPendingLayoutCount();
+
+            if (pendingLayout && pendingLayoutCount > 0) {
+                spdlog::debug("Pending layout load: {} windows", pendingLayoutCount);
+            }
+
+            // Helper lambda to find and apply layout for a window
+            auto applyLayoutForWindow = [](const char* windowName, const WindowLayout* layout, size_t count) {
+                spdlog::debug("applyLayoutForWindow called: name='{}', count={}", windowName, count);
+                for (size_t i = 0; i < count; ++i) {
+                    spdlog::debug("  Checking[{}]: name='{}', isValid={}", i, layout[i].name, layout[i].isValid);
+                    if (layout[i].name == windowName && layout[i].isValid) {
+                        spdlog::debug("  Match found, calling applyWindowLayout");
+                        applyWindowLayout(windowName, layout[i]);
+                        break;
+                    }
+                }
+            };
+
+            // Track which windows we've applied this frame
+            // Apply layouts BEFORE Begin() calls
+
+            // Demo window
+            if (shouldReset) {
+                applyResetLayout("Demo", 0);
+            } else if (pendingLayout && pendingLayoutCount > 0) {
+                applyLayoutForWindow("Demo", pendingLayout, pendingLayoutCount);
+            }
+
+            // player window
+            if (shouldReset) {
+                applyResetLayout("player", 1);
+            } else if (pendingLayout && pendingLayoutCount > 0) {
+                applyLayoutForWindow("player", pendingLayout, pendingLayoutCount);
+            }
             displayPlayer(player);
+
+            // map window
+            if (shouldReset) {
+                applyResetLayout("map", 2);
+            } else if (pendingLayout && pendingLayoutCount > 0) {
+                applyLayoutForWindow("map", pendingLayout, pendingLayoutCount);
+            }
             displayMap(map);
+
+            // network window
+            if (shouldReset) {
+                applyResetLayout("network", 3);
+            } else if (pendingLayout && pendingLayoutCount > 0) {
+                applyLayoutForWindow("network", pendingLayout, pendingLayoutCount);
+            }
             networkMenu(networkManager);
+
+            // renderer window
+            if (shouldReset) {
+                applyResetLayout("renderer", 4);
+            } else if (pendingLayout && pendingLayoutCount > 0) {
+                applyLayoutForWindow("renderer", pendingLayout, pendingLayoutCount);
+            }
             renderMenu(renderer);
+
+            // settings window
+            if (shouldReset) {
+                applyResetLayout("settings", 5);
+            } else if (pendingLayout && pendingLayoutCount > 0) {
+                applyLayoutForWindow("settings", pendingLayout, pendingLayoutCount);
+            }
+            settingsMenu(LAYOUT_FILENAME);
+
+            if (shouldReset || (pendingLayout && pendingLayoutCount > 0)) {
+                clearPendingLayoutAction();
+            }
 
             ImGui::Render();
 

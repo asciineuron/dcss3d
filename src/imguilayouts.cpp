@@ -4,12 +4,250 @@
 #include "debug.hpp"
 #include "imgui.h"
 #include "imgui_stdlib.h"
+#include <spdlog/spdlog.h>
 #define GLM_ENABLE_EXPERIMENTAL // for glm::to_string()
 #include "glm/gtx/string_cast.hpp"
 #include <format>
+#include <fstream>
 #include <mutex>
 #include <ranges>
 #include <sstream>
+
+namespace {
+// Action to perform this frame
+enum class LayoutAction {
+    None,
+    Reset,
+    Load
+};
+LayoutAction g_pendingAction = LayoutAction::None;
+
+// Saved layout data
+std::vector<WindowLayout> g_savedLayout;
+const char* g_pendingLayoutFilename = nullptr;
+
+// Callback to get current window layout
+WindowLayoutCallback g_windowLayoutCallback = nullptr;
+} // namespace
+
+void registerWindowForReset(const char* windowName)
+{
+    // Prevent duplicate registrations
+    // (We don't track registered names anymore, just register at startup)
+}
+
+void setWindowLayoutCallback(WindowLayoutCallback callback)
+{
+    g_windowLayoutCallback = callback;
+}
+
+bool windowLayoutNeedsReset()
+{
+    return g_pendingAction == LayoutAction::Reset;
+}
+
+const WindowLayout* getPendingLayout()
+{
+    return (g_pendingAction == LayoutAction::Load && !g_savedLayout.empty()) ? g_savedLayout.data() : nullptr;
+}
+
+size_t getPendingLayoutCount()
+{
+    return (g_pendingAction == LayoutAction::Load) ? g_savedLayout.size() : 0;
+}
+
+const char* getPendingLayoutName()
+{
+    if (g_pendingAction != LayoutAction::Load || g_savedLayout.empty()) return nullptr;
+    return g_savedLayout[0].name.c_str();
+}
+
+void clearPendingLayoutAction()
+{
+    g_pendingAction = LayoutAction::None;
+}
+
+void resetWindowLayout()
+{
+    g_savedLayout.clear();
+    g_pendingAction = LayoutAction::Reset;
+}
+
+bool hasSavedLayout(const char* filename)
+{
+    std::ifstream file(filename);
+    return file.good();
+}
+
+bool saveWindowLayout(const char* filename)
+{
+    if (!g_windowLayoutCallback) {
+        spdlog::error("Window layout callback not set, cannot save");
+        return false;
+    }
+
+    // Get all window names and their current layouts
+    // Window names are defined in main.cpp
+    const char* windowNames[] = {
+        "Demo", "player", "map", "network", "renderer", "settings"
+    };
+
+    std::ostringstream json;
+    json << "{\n";
+    json << "  \"windows\": [\n";
+
+    bool first = true;
+    for (const char* name : windowNames) {
+        WindowLayout layout = g_windowLayoutCallback(name);
+        
+        if (!first) json << ",\n";
+        first = false;
+        
+        json << "    {\n";
+        json << "      \"name\": \"" << layout.name << "\",\n";
+        json << "      \"posX\": " << layout.posX << ",\n";
+        json << "      \"posY\": " << layout.posY << ",\n";
+        json << "      \"sizeX\": " << layout.sizeX << ",\n";
+        json << "      \"sizeY\": " << layout.sizeY << ",\n";
+        json << "      \"isCollapsed\": " << (layout.isCollapsed ? "true" : "false") << "\n";
+        json << "    }";
+    }
+
+    json << "\n  ]\n";
+    json << "}\n";
+
+    std::ofstream file(filename);
+    if (!file.is_open()) {
+        spdlog::error("Failed to open file for saving layout: {}", filename);
+        return false;
+    }
+
+    file << json.str();
+    file.close();
+
+    spdlog::info("Window layout saved to: {}", filename);
+    return true;
+}
+
+bool loadWindowLayout(const char* filename)
+{
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        spdlog::error("Failed to open layout file: {}", filename);
+        return false;
+    }
+
+    // Parse JSON manually (simple parser for our format)
+    g_savedLayout.clear();
+
+    std::string content((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
+    file.close();
+
+    // Simple JSON parsing - look for window entries
+    // Format: "name": "xxx", "posX": x.x, "posY": y.y, "sizeX": w.w, "sizeY": h.h, "isCollapsed": true/false
+    
+    size_t pos = 0;
+    while (true) {
+        // Find next "name": "
+        size_t nameStart = content.find("\"name\": \"", pos);
+        if (nameStart == std::string::npos) break;
+        
+        WindowLayout layout;
+        
+        // Extract name
+        size_t nameQuote = nameStart + 9;
+        size_t nameEnd = content.find("\"", nameQuote);
+        layout.name = content.substr(nameQuote, nameEnd - nameQuote);
+        
+        // Extract posX
+        size_t posXStart = content.find("\"posX\":", nameEnd);
+        if (posXStart == std::string::npos) break;
+        posXStart += 7;
+        while (isspace(content[posXStart])) posXStart++;
+        layout.posX = std::stof(content.substr(posXStart));
+        
+        // Extract posY
+        size_t posYStart = content.find("\"posY\":", posXStart);
+        posYStart += 7;
+        while (isspace(content[posYStart])) posYStart++;
+        layout.posY = std::stof(content.substr(posYStart));
+        
+        // Extract sizeX
+        size_t sizeXStart = content.find("\"sizeX\":", posYStart);
+        sizeXStart += 8;
+        while (isspace(content[sizeXStart])) sizeXStart++;
+        layout.sizeX = std::stof(content.substr(sizeXStart));
+        
+        // Extract sizeY
+        size_t sizeYStart = content.find("\"sizeY\":", sizeXStart);
+        sizeYStart += 8;
+        while (isspace(content[sizeYStart])) sizeYStart++;
+        layout.sizeY = std::stof(content.substr(sizeYStart));
+        
+        // Extract isCollapsed
+        size_t collapsedStart = content.find("\"isCollapsed\":", sizeYStart);
+        collapsedStart += 14;
+        while (isspace(content[collapsedStart])) collapsedStart++;
+        layout.isCollapsed = (content.substr(collapsedStart, 4) == "true");
+        
+        layout.isValid = true;
+        g_savedLayout.push_back(layout);
+        
+        pos = collapsedStart + 4;
+    }
+
+    if (g_savedLayout.empty()) {
+        spdlog::error("Failed to parse layout file: {}", filename);
+        return false;
+    }
+
+    g_pendingAction = LayoutAction::Load;
+    g_pendingLayoutFilename = filename;
+    
+    spdlog::info("Window layout loaded from: {} ({} windows)", filename, g_savedLayout.size());
+    return true;
+}
+
+void settingsMenu(const char* layoutFilename)
+{
+    ImGui::Begin("settings");
+
+    ImGui::SeparatorText("Window Layout");
+    ImGui::Spacing();
+
+    // Save Layout button
+    if (ImGui::Button("Save Layout")) {
+        if (saveWindowLayout(layoutFilename)) {
+            // Success - could show notification
+        }
+    }
+    ImGui::SameLine();
+
+    // Load Layout button
+    bool hasLayout = hasSavedLayout(layoutFilename);
+    if (ImGui::Button("Load Layout", ImVec2(100, 0))) {
+        loadWindowLayout(layoutFilename);
+    }
+    ImGui::SameLine();
+    if (!hasLayout) {
+        ImGui::TextDisabled("(no saved layout)");
+    }
+
+    // Reset Layout button
+    ImGui::Spacing();
+    if (ImGui::Button("Reset Layout to Defaults")) {
+        resetWindowLayout();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(cascading positions, auto-sizes)");
+
+    // Show current layout filename
+    ImGui::Spacing();
+    ImGui::Text("Layout file: %s", layoutFilename);
+
+    ImGui::End();
+}
 
 void displayPlayer(const Player& player)
 {
