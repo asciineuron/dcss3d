@@ -9,7 +9,7 @@
 
 struct Camera {
     glm::vec3 pos { 0.5f, 0.f, -0.5f };
-    float theta { 0.f };
+    float theta { 1.570796f }; // pi/2 to look forward (-Z direction)
     float phi { 0.f };
     float fov { 0.785398f };
     float aspectRatio { 1.777777f };
@@ -51,10 +51,10 @@ private:
 
 struct ShaderParameters {
     std::string_view filename;
-    Uint32 samplerCount;
-    Uint32 uniformBufferCount;
-    Uint32 storageBufferCount;
-    Uint32 storageTextureCount;
+    Uint32 samplerCount {};
+    Uint32 uniformBufferCount {};
+    Uint32 storageBufferCount {};
+    Uint32 storageTextureCount {};
 };
 
 // this base class can draw a single model at its designated position
@@ -62,7 +62,8 @@ class BufferedModel {
 public:
     BufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { "position.vert", 0, 1, 0, 0 },
-        ShaderParameters fragment = { "color.frag", 0, 0, 0, 0 });
+        ShaderParameters fragment = { "color.frag", 0, 0, 0, 0 },
+        std::string_view textureFilename = {});
     ~BufferedModel();
 
     virtual void release();
@@ -81,10 +82,17 @@ protected:
     SDL_GPUBuffer* m_indexBuffer {}; // ^ so don't need to store their temp transfer buffer here
     Uint32 m_vertexBufSize;
     Uint32 m_indexBufSize;
-    bool m_hasReleased;
+
+    // Texture members
+    SDL_GPUTexture* m_texture {};
+    SDL_GPUSampler* m_sampler {};
+    std::string m_textureFilename;
+
+    bool m_hasReleased {};
 
     SDL_GPUGraphicsPipeline* createGraphicsPipelineWithShaders(SDL_Window* window, ShaderParameters vertex, ShaderParameters fragment);
     void uploadModel();
+    void loadTexture(SDL_GPUCommandBuffer* cmdBuf, const std::string& filename);
 };
 
 // has special buffers to handle drawing the map model at each chosen index
@@ -92,7 +100,8 @@ class MapDisplacedBufferedModel : public BufferedModel {
 public:
     MapDisplacedBufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { std::string_view("position_color_shifted.vert"), 0, 1, 1, 0 },
-        ShaderParameters fragment = { std::string_view("lit.frag"), 0, 1, 0, 0 });
+        ShaderParameters fragment = { std::string_view("lit.frag"), 0, 1, 0, 0 },
+        std::string_view textureFilename = {});
     ~MapDisplacedBufferedModel();
 
     void release() override;

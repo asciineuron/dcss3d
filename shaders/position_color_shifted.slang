@@ -24,6 +24,7 @@ struct main_in {
     float3 normal   : TEXCOORD1;
     float3 shiftData : TEXCOORD2;  // instance: tile_x, tile_y, type
     float4 colorData : TEXCOORD3; // instance: color RGBA
+    float2 uv        : TEXCOORD4;  // texture UV coordinates
     uint id : SV_InstanceID;
 };
 
@@ -34,6 +35,7 @@ struct main_out {
     float3 shiftOut    : TEXCOORD2;  // pass through to fragment
     float instanceId   : TEXCOORD3;   // instance ID as float
     float4 tileColor   : TEXCOORD4;  // tile color from per-instance vertex attribute
+    float2 uv          : TEXCOORD5;  // texture UV coordinates
 };
 
 [shader("vertex")]
@@ -58,5 +60,6 @@ main_out main(main_in input)
     output.shiftOut = input.shiftData;
     output.instanceId = float(input.id);
     output.tileColor = input.colorData;
+    output.uv = input.uv;
     return output;
 }

@@ -58,6 +58,9 @@ endif()
 find_package(SDL3 REQUIRED)
 target_link_libraries(dcss3d_obj PRIVATE SDL3::SDL3)
 
+find_package(SDL3_image REQUIRED)
+target_link_libraries(dcss3d_obj PRIVATE SDL3_image::SDL3_image)
+
 find_package(nlohmann_json 3.11.0 REQUIRED)
 target_link_libraries(dcss3d_obj PRIVATE nlohmann_json::nlohmann_json)
 

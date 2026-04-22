@@ -4,6 +4,7 @@
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlgpu3.h"
 #include <SDL3/SDL_gpu.h>
+#include <SDL3_image/SDL_image.h>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -123,7 +124,8 @@ Renderer::Renderer()
     m_mapCubeModel = std::make_unique<MapDisplacedBufferedModel>(
         m_GPUDevice, m_window, std::make_unique<Model>("cube1.obj"),
         ShaderParameters { std::string_view("position_color_shifted.vert"), 0, 1, 0, 0 },
-        ShaderParameters { std::string_view("lit.frag"), 0, 1, 0, 0 });
+        ShaderParameters { std::string_view("lit.frag"), 1, 1, 0, 0 },
+        std::string_view("resources/cube1_diffuse.png"));
 
     // imgui:
     // Setup Dear ImGui context
@@ -324,13 +326,32 @@ void Model::loadObj(std::string_view filename)
             ss >> uv.x >> uv.y;
             m_uvs.push_back(std::move(uv));
         } else if (type == "f") {
-            // TODO: handle 3 vs 6 form variants?
+            // Handle OBJ face formats: v, v/t, v/t/n, v//n
             Face face;
-            ss >> face.vertexIndices[0] >> face.vertexIndices[1] >> face.vertexIndices[2];
-            // 0-based indexing:
-            --(face.vertexIndices[0]);
-            --(face.vertexIndices[1]);
-            --(face.vertexIndices[2]);
+            std::string v1, v2, v3;
+            ss >> v1 >> v2 >> v3;
+            
+            // Parse vertex/texture indices from format like "5/1" or "5/1/1"
+            auto parseObjIndex = [](const std::string& s) -> std::pair<int, int> {
+                size_t slash = s.find('/');
+                int vIdx = std::stoi(s.substr(0, slash)) - 1; // 0-based
+                int tIdx = 0;
+                if (slash != std::string::npos) {
+                    size_t secondSlash = s.find('/', slash + 1);
+                    std::string texPart = s.substr(slash + 1, secondSlash - slash - 1);
+                    if (!texPart.empty()) {
+                        tIdx = std::stoi(texPart) - 1; // 0-based
+                    }
+                }
+                return {vIdx, tIdx};
+            };
+            
+            auto [v1i, t1i] = parseObjIndex(v1);
+            auto [v2i, t2i] = parseObjIndex(v2);
+            auto [v3i, t3i] = parseObjIndex(v3);
+            
+            face.vertexIndices = {static_cast<Uint16>(v1i), static_cast<Uint16>(v2i), static_cast<Uint16>(v3i)};
+            face.textureIndices = {static_cast<Uint16>(t1i), static_cast<Uint16>(t2i), static_cast<Uint16>(t3i)};
             m_faces.push_back(std::move(face));
         } else {
             continue;
@@ -343,6 +364,7 @@ void Model::loadObj(std::string_view filename)
     // gives correct per-face flat shading for lighting.
     std::vector<glm::vec3> expandedVertices;
     std::vector<glm::vec3> expandedNormals;
+    std::vector<glm::vec2> expandedUVs;  // Store expanded UVs
     std::vector<Face> newFaces;
 
     for (size_t f = 0; f < m_faces.size(); ++f) {
@@ -355,33 +377,76 @@ void Model::loadObj(std::string_view filename)
         glm::vec3 edge2 = v2 - v0;
         glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));
 
-        // Emit 3 vertices with position and normal for this triangle
+        // Emit 3 vertices with position, normal, and UV for this triangle
         uint32_t baseIdx = static_cast<uint32_t>(expandedVertices.size());
+        
+        // Vertex 0
         expandedVertices.push_back(v0);
         expandedNormals.push_back(normal);
+        // UV: use texture index if valid, otherwise generate proper cube UV
+        if (face.textureIndices[0] < m_uvs.size()) {
+            expandedUVs.push_back(m_uvs[face.textureIndices[0]]);
+        } else {
+            // Fallback: generate cube UV based on face normal
+            if (std::abs(normal.z) > 0.9f) {
+                expandedUVs.push_back(glm::vec2(v0.x + 0.5f, v0.y + 0.5f));
+            } else if (std::abs(normal.x) > 0.9f) {
+                expandedUVs.push_back(glm::vec2(v0.z + 0.5f, v0.y + 0.5f));
+            } else {
+                expandedUVs.push_back(glm::vec2(v0.x + 0.5f, v0.z + 0.5f));
+            }
+        }
+        
+        // Vertex 1
         expandedVertices.push_back(v1);
         expandedNormals.push_back(normal);
+        if (face.textureIndices[1] < m_uvs.size()) {
+            expandedUVs.push_back(m_uvs[face.textureIndices[1]]);
+        } else {
+            if (std::abs(normal.z) > 0.9f) {
+                expandedUVs.push_back(glm::vec2(v1.x + 0.5f, v1.y + 0.5f));
+            } else if (std::abs(normal.x) > 0.9f) {
+                expandedUVs.push_back(glm::vec2(v1.z + 0.5f, v1.y + 0.5f));
+            } else {
+                expandedUVs.push_back(glm::vec2(v1.x + 0.5f, v1.z + 0.5f));
+            }
+        }
+        
+        // Vertex 2
         expandedVertices.push_back(v2);
         expandedNormals.push_back(normal);
+        if (face.textureIndices[2] < m_uvs.size()) {
+            expandedUVs.push_back(m_uvs[face.textureIndices[2]]);
+        } else {
+            if (std::abs(normal.z) > 0.9f) {
+                expandedUVs.push_back(glm::vec2(v2.x + 0.5f, v2.y + 0.5f));
+            } else if (std::abs(normal.x) > 0.9f) {
+                expandedUVs.push_back(glm::vec2(v2.z + 0.5f, v2.y + 0.5f));
+            } else {
+                expandedUVs.push_back(glm::vec2(v2.x + 0.5f, v2.z + 0.5f));
+            }
+        }
 
         // New face references the expanded indices
         newFaces.push_back({
             { static_cast<Uint16>(baseIdx), static_cast<Uint16>(baseIdx + 1), static_cast<Uint16>(baseIdx + 2) },
-            { 0, 0, 0 }  // no texture indices
+            { 0, 0, 0 }  // no longer used but keep for compatibility
         });
     }
 
     m_vertices = std::move(expandedVertices);
     m_normals = std::move(expandedNormals);
+    m_uvs = std::move(expandedUVs);  // Store expanded UVs
     m_faces = std::move(newFaces);
 }
 
 BufferedModel::BufferedModel(SDL_GPUDevice* gpu, SDL_Window* window, std::unique_ptr<Model> model,
-    ShaderParameters vertex, ShaderParameters fragment)
+    ShaderParameters vertex, ShaderParameters fragment, std::string_view textureFilename)
     : m_model { std::move(model) }
     , m_GPUDevice { gpu }
-    // Vertex data: position (16 bytes) + normal (16 bytes) = 32 bytes per vertex
-    , m_vertexBufSize { static_cast<Uint32>(32 * (m_model->vertices().size())) }
+    , m_textureFilename { textureFilename }
+    // Vertex data: position (16 bytes) + normal (16 bytes) + UV (16 bytes) = 48 bytes per vertex
+    , m_vertexBufSize { static_cast<Uint32>(48 * (m_model->vertices().size())) }
     , m_indexBufSize { static_cast<Uint16>(sizeof(Uint16) * 3 * m_model->faces().size()) }
     , m_drawBufSize { sizeof(SDL_GPUIndexedIndirectDrawCommand) * 1 }
 {
@@ -421,17 +486,20 @@ void BufferedModel::uploadModel()
     SDL_GPUTransferBuffer* tempVertexIndexTransfer = SDL_CreateGPUTransferBuffer(
         m_GPUDevice, &tempVertexIndexTransferInfo);
 
-    // Interleaved vertex format for Metal: position (16 bytes) + normal (16 bytes) per vertex
+    // Interleaved vertex format for Metal: position (16 bytes) + normal (16 bytes) + UV (16 bytes) per vertex
     // NOTE: Metal's float3 vertex attribute has 16-byte alignment, not 12!
-    // The struct must be 32 bytes total to match Metal's expected layout.
-    struct VertexPN {
+    // UV (float2) also needs 16-byte alignment in Metal, so we pad it.
+    // Total stride = 48 bytes per vertex.
+    struct VertexPNU {
         float pos[3];     // offset 0, GPU reads 16 bytes (12 + 4 pad)
         float _pad1[1];    // offset 12, padding to align normal to 16
         float normal[3];   // offset 16, GPU reads 16 bytes (12 + 4 pad)
-        float _pad2[1];   // offset 28, padding to make total 32 bytes
+        float _pad2[1];   // offset 28, padding to align UV to 16
+        float uv[2];       // offset 32, GPU reads 16 bytes (8 + 8 pad)
+        float _pad3[2];   // offset 40, padding to make total 48 bytes
     };
-    static_assert(sizeof(VertexPN) == 32, "VertexPN must be 32 bytes for Metal float3 alignment");
-    VertexPN* vertexTransfer = (VertexPN*)SDL_MapGPUTransferBuffer(m_GPUDevice, tempVertexIndexTransfer, false);
+    static_assert(sizeof(VertexPNU) == 48, "VertexPNU must be 48 bytes for Metal alignment");
+    VertexPNU* vertexTransfer = (VertexPNU*)SDL_MapGPUTransferBuffer(m_GPUDevice, tempVertexIndexTransfer, false);
     for (size_t i = 0; i < m_model->vertices().size(); i++) {
         vertexTransfer[i].pos[0] = m_model->vertices()[i].x;
         vertexTransfer[i].pos[1] = m_model->vertices()[i].y;
@@ -441,6 +509,17 @@ void BufferedModel::uploadModel()
         vertexTransfer[i].normal[1] = m_model->normals()[i].y;
         vertexTransfer[i].normal[2] = m_model->normals()[i].z;
         vertexTransfer[i]._pad2[0] = 0.0f;
+        // Use UV from model - Model::loadObj() is responsible for proper UV generation
+        if (i < m_model->uvs().size()) {
+            vertexTransfer[i].uv[0] = m_model->uvs()[i].x;
+            vertexTransfer[i].uv[1] = m_model->uvs()[i].y;
+        } else {
+            // Fallback - shouldn't happen if Model::loadObj() is correct
+            vertexTransfer[i].uv[0] = 0.0f;
+            vertexTransfer[i].uv[1] = 0.0f;
+        }
+        vertexTransfer[i]._pad3[0] = 0.0f;
+        vertexTransfer[i]._pad3[1] = 0.0f;
     }
 
     // Index buffer: triangle i starts at index 3*i (vertex i*3, i*3+1, i*3+2)
@@ -494,6 +573,60 @@ void BufferedModel::uploadModel()
     SDL_EndGPUCopyPass(copyPass);
     SDL_SubmitGPUCommandBuffer(cmdBuf);
     SDL_ReleaseGPUTransferBuffer(m_GPUDevice, tempVertexIndexTransfer); // not used again
+
+    // Load texture if a texture filename was provided
+    if (!m_textureFilename.empty()) {
+        SDL_GPUCommandBuffer* texCmdBuf = SDL_AcquireGPUCommandBuffer(m_GPUDevice);
+        loadTexture(texCmdBuf, m_textureFilename);
+    }
+}
+
+void BufferedModel::loadTexture(SDL_GPUCommandBuffer* cmdBuf, const std::string& filename)
+{
+    // Full path to texture file
+    std::string fullPath = std::format("{}{}", SDL_GetBasePath(), filename);
+    spdlog::info("Loading texture: {}", fullPath);
+
+    // Use SDL3_image's GPU texture loading - it handles everything for us!
+    // This creates a texture with format SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM
+    int texWidth = 0;
+    int texHeight = 0;
+
+    // We need a copy pass for the upload
+    SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmdBuf);
+    m_texture = IMG_LoadGPUTexture(m_GPUDevice, copyPass, fullPath.c_str(), &texWidth, &texHeight);
+    SDL_EndGPUCopyPass(copyPass);
+
+    if (!m_texture) {
+        spdlog::error("Failed to load texture {}: {}", fullPath, SDL_GetError());
+        return;
+    }
+
+    spdlog::info("Loaded texture {}x{}", texWidth, texHeight);
+
+    // Create a sampler for the texture
+    SDL_GPUSamplerCreateInfo samplerInfo = {
+        .min_filter = SDL_GPU_FILTER_LINEAR,
+        .mag_filter = SDL_GPU_FILTER_LINEAR,
+        .mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR,
+        .address_mode_u = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+        .mip_lod_bias = 0.0f,
+        .max_anisotropy = 1.0f,
+        .compare_op = SDL_GPU_COMPAREOP_INVALID,
+        .min_lod = -1000.0f,
+        .max_lod = 1000.0f,
+        .enable_anisotropy = false,
+        .enable_compare = false,
+    };
+    m_sampler = SDL_CreateGPUSampler(m_GPUDevice, &samplerInfo);
+    if (!m_sampler) {
+        spdlog::error("Failed to create sampler: {}", SDL_GetError());
+    }
+
+    // Submit the command buffer
+    SDL_SubmitGPUCommandBuffer(cmdBuf);
 }
 
 void BufferedModel::release()
@@ -504,6 +637,14 @@ void BufferedModel::release()
         SDL_ReleaseGPUBuffer(m_GPUDevice, m_indexBuffer);
         SDL_ReleaseGPUBuffer(m_GPUDevice, m_drawBuffer);
         SDL_ReleaseGPUTransferBuffer(m_GPUDevice, m_drawTransferBuf);
+        if (m_texture) {
+            SDL_ReleaseGPUTexture(m_GPUDevice, m_texture);
+            m_texture = nullptr;
+        }
+        if (m_sampler) {
+            SDL_ReleaseGPUSampler(m_GPUDevice, m_sampler);
+            m_sampler = nullptr;
+        }
     }
     m_hasReleased = true;
 }
@@ -514,8 +655,8 @@ BufferedModel::~BufferedModel()
 }
 
 MapDisplacedBufferedModel::MapDisplacedBufferedModel(SDL_GPUDevice* gpu, SDL_Window* window, std::unique_ptr<Model> model,
-    ShaderParameters vertex, ShaderParameters fragment)
-    : BufferedModel(gpu, window, std::move(model), vertex, fragment)
+    ShaderParameters vertex, ShaderParameters fragment, std::string_view textureFilename)
+    : BufferedModel(gpu, window, std::move(model), vertex, fragment, textureFilename)
 {
     SDL_GPUBufferCreateInfo mapBufferCreateInfo = {
         .usage = SDL_GPU_BUFFERUSAGE_VERTEX,  // Must be VERTEX for slot 1 (Metal restriction)
@@ -602,7 +743,7 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
     SDL_GPUShader* vertexShader = loadShader(m_GPUDevice, vertex);
     SDL_GPUShader* fragShader = loadShader(m_GPUDevice, fragment);
 
-    // Vertex format: position (16 bytes) + normal (16 bytes) = 32 bytes stride
+    // Vertex format: position (16 bytes) + normal (16 bytes) + UV (16 bytes) = 48 bytes stride
     // NOTE: Metal's float3 has 16-byte alignment in vertex attribute arrays
     SDL_GPUVertexAttribute vertexAttributes[] = {
         { .location = 0,
@@ -620,11 +761,15 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         { .location = 3,
             .buffer_slot = 1,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
-            .offset = 16 },                     // tile color at offset 16
+            .offset = 16 },                      // tile color at offset 16
+        { .location = 4,
+            .buffer_slot = 0,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+            .offset = 32 },                      // UV at offset 32
     };
     SDL_GPUVertexBufferDescription vertexBufferDescriptions[] = {
         { .slot = 0,
-            .pitch = 32,                         // stride: position(16) + normal(16) = 32 bytes
+            .pitch = 48,                         // stride: position(16) + normal(16) + UV(16) = 48 bytes
             .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
             .instance_step_rate = 0 },
         { .slot = 1,
@@ -638,7 +783,7 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         .vertex_buffer_descriptions = vertexBufferDescriptions,
         .num_vertex_buffers = 2,
         .vertex_attributes = vertexAttributes,
-        .num_vertex_attributes = 4,             // position + normal + shift + color
+        .num_vertex_attributes = 5,             // position + normal + shift + color + UV
     };
     SDL_GPUColorTargetDescription colorTargetDescriptions[] = {
         { .format = SDL_GetGPUSwapchainTextureFormat(
@@ -705,6 +850,15 @@ void BufferedModel::draw(SDL_GPURenderPass* renderPass)
     SDL_GPUBufferBinding indexBufferBinding = { .buffer = m_indexBuffer, .offset = 0 };
     SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 
+    // Bind texture sampler if we have a texture
+    if (m_texture && m_sampler) {
+        SDL_GPUTextureSamplerBinding texSamplerBinding = {
+            .texture = m_texture,
+            .sampler = m_sampler
+        };
+        SDL_BindGPUFragmentSamplers(renderPass, 0, &texSamplerBinding, 1);
+    }
+
     SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer, 0, 1);
 }
 
@@ -713,7 +867,7 @@ void MapDisplacedBufferedModel::draw(SDL_GPURenderPass* renderPass)
     SDL_BindGPUGraphicsPipeline(renderPass, m_pipeline);
 
     // Bind vertex buffers:
-    // Slot 0: per-vertex position + normal (24 bytes per vertex)
+    // Slot 0: per-vertex position + normal + UV (48 bytes per vertex)
     SDL_GPUBufferBinding vertexBufferBinding = { .buffer = m_vertexBuffer, .offset = 0 };
     SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
 
@@ -724,6 +878,15 @@ void MapDisplacedBufferedModel::draw(SDL_GPURenderPass* renderPass)
     // Bind index buffer
     SDL_GPUBufferBinding indexBufferBinding = { .buffer = m_indexBuffer, .offset = 0 };
     SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+
+    // Bind texture sampler if we have a texture
+    if (m_texture && m_sampler) {
+        SDL_GPUTextureSamplerBinding texSamplerBinding = {
+            .texture = m_texture,
+            .sampler = m_sampler
+        };
+        SDL_BindGPUFragmentSamplers(renderPass, 0, &texSamplerBinding, 1);
+    }
 
     SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer, 0, 1);
 }
