@@ -84,6 +84,90 @@ target_include_directories(dcss3d_obj PRIVATE mdspan/include)
 file(COPY ${PROJECT_SOURCE_DIR}/resources DESTINATION ${CMAKE_BINARY_DIR})
 file(COPY ${PROJECT_SOURCE_DIR}/shaders DESTINATION ${CMAKE_BINARY_DIR})
 
+# --- Shader compilation via slangc ---
+# Only .slang sources are tracked in git; compiled outputs (.hlsl .metal .spv .dxil)
+# are generated at build time and placed in build/shaders/.
+find_program(SLANGC slangc
+    HINTS ${PROJECT_SOURCE_DIR}/slang-2026.5.2-macos-aarch64/bin
+    PATHS $ENV{PATH}
+)
+if(NOT SLANGC)
+    message(FATAL_ERROR "slangc not found. Expected in ${PROJECT_SOURCE_DIR}/slang-*/bin/ or in PATH.")
+endif()
+message(STATUS "Found slangc: ${SLANGC}")
+
+# Detect stage ('vertex' -> 'vert', 'fragment' -> 'frag') by regexing the .slang file.
+function(detect_slang_stage SLANG_FILE OUT_STAGE OUT_SUFFIX)
+    file(STRINGS ${SLANG_FILE} lines)
+    foreach(line ${lines})
+        if(line MATCHES "\\[shader\\(\"vertex\"\\)\\]")
+            set(${OUT_STAGE} "vertex" PARENT_SCOPE)
+            set(${OUT_SUFFIX} "vert" PARENT_SCOPE)
+            return()
+        elseif(line MATCHES "\\[shader\\(\"fragment\"\\)\\]")
+            set(${OUT_STAGE} "fragment" PARENT_SCOPE)
+            set(${OUT_SUFFIX} "frag" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+    message(FATAL_ERROR "Could not detect shader stage in ${SLANG_FILE}")
+endfunction()
+
+set(SLANG_SHADERS
+    ${PROJECT_SOURCE_DIR}/shaders/position_color_shifted.slang
+    ${PROJECT_SOURCE_DIR}/shaders/lit.slang
+)
+
+set(SHADER_TARGETS "")
+foreach(SLANG_FILE ${SLANG_SHADERS})
+    get_filename_component(SLANG_NAME ${SLANG_FILE} NAME_WE)
+    detect_slang_stage(${SLANG_FILE} STAGE SUFFIX)
+
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/shaders/${SLANG_NAME}.${SUFFIX}.hlsl
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
+        COMMAND ${SLANGC} ${SLANG_FILE}
+            -entry main -stage ${STAGE}
+            -target hlsl
+            -o ${CMAKE_BINARY_DIR}/shaders/${SLANG_NAME}.${SUFFIX}.hlsl
+            -profile sm_5_0
+        DEPENDS ${SLANG_FILE}
+        COMMENT "Compiling ${SLANG_NAME}.slang → HLSL"
+    )
+
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/shaders/${SLANG_NAME}.${SUFFIX}.metal
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
+        COMMAND ${SLANGC} ${SLANG_FILE}
+            -entry main -stage ${STAGE}
+            -target metal
+            -o ${CMAKE_BINARY_DIR}/shaders/${SLANG_NAME}.${SUFFIX}.metal
+            -profile sm_5_0
+        DEPENDS ${SLANG_FILE}
+        COMMENT "Compiling ${SLANG_NAME}.slang → Metal"
+    )
+
+    add_custom_command(
+        OUTPUT ${CMAKE_BINARY_DIR}/shaders/${SLANG_NAME}.${SUFFIX}.spv
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
+        COMMAND ${SLANGC} ${SLANG_FILE}
+            -entry main -stage ${STAGE}
+            -target spirv
+            -o ${CMAKE_BINARY_DIR}/shaders/${SLANG_NAME}.${SUFFIX}.spv
+            -profile glsl_450
+        DEPENDS ${SLANG_FILE}
+        COMMENT "Compiling ${SLANG_NAME}.slang → SPIR-V"
+    )
+
+    list(APPEND SHADER_TARGETS
+        ${CMAKE_BINARY_DIR}/shaders/${SLANG_NAME}.${SUFFIX}.hlsl
+        ${CMAKE_BINARY_DIR}/shaders/${SLANG_NAME}.${SUFFIX}.metal
+        ${CMAKE_BINARY_DIR}/shaders/${SLANG_NAME}.${SUFFIX}.spv)
+endforeach()
+
+add_custom_target(compile_shaders DEPENDS ${SHADER_TARGETS})
+add_dependencies(dcss3d compile_shaders)
+
 # Create virtual environment and install dependencies in build directory
 set(VENV_DIR "${CMAKE_BINARY_DIR}/venv")
 execute_process(

@@ -106,11 +106,12 @@ private:
     bool m_hasReleased;
 
     struct DisplacementColorInfo {
-        float shiftX;     // tile_x
-        float shiftY;     // tile_y
-        float tileType;   // type as float
-        float padding1;   // alignment padding (4 floats = 16 bytes, matches vec4 alignment)
-        glm::vec4 color;  // tile color RGBA
+        float shiftX;     // offset 0
+        float shiftY;     // offset 4
+        float tileType;   // offset 8
+        float padding;    // offset 12 (required padding so color aligns to 16 bytes)
+        glm::vec4 color;  // offset 16
+        // sizeof = 32 bytes (matches slot 1 pitch perfectly)
     };
 
     static constexpr unsigned s_maxRenderCopies = 289; // 15^2 standard, 17^2 max, for Barachi

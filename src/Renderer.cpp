@@ -206,7 +206,8 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
             .layer = 0,
         };
 
-        SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(commandBuffer, &targetInfo, 1, &depthTargetInfo);
+        // Pass 1: 3D scene — render map cubes with depth testing
+        SDL_GPURenderPass* scenePass = SDL_BeginGPURenderPass(commandBuffer, &targetInfo, 1, &depthTargetInfo);
 
         SDL_PushGPUVertexUniformData(commandBuffer, 0, glm::value_ptr(cameraView), sizeof(cameraView));
 
@@ -217,12 +218,20 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
         };
         SDL_PushGPUFragmentUniformData(commandBuffer, 0, &lightData, sizeof(lightData));
 
-        m_mapCubeModel->draw(renderPass);
+        m_mapCubeModel->draw(scenePass);
+        SDL_EndGPURenderPass(scenePass);
 
-        if (m_renderUI)
-            ImGui_ImplSDLGPU3_RenderDrawData(drawData, commandBuffer, renderPass);
-
-        SDL_EndGPURenderPass(renderPass);
+        // Pass 2: ImGui — render on top, no depth buffer (which otherwise covers the window contents)
+        if (m_renderUI) {
+            SDL_GPUColorTargetInfo uiTargetInfo = {
+                .texture = swapchainTexture,
+                .load_op = SDL_GPU_LOADOP_LOAD,
+                .store_op = SDL_GPU_STOREOP_STORE,
+            };
+            SDL_GPURenderPass* uiPass = SDL_BeginGPURenderPass(commandBuffer, &uiTargetInfo, 1, NULL);
+            ImGui_ImplSDLGPU3_RenderDrawData(drawData, commandBuffer, uiPass);
+            SDL_EndGPURenderPass(uiPass);
+        }
     }
 
     SDL_SubmitGPUCommandBuffer(commandBuffer);
@@ -371,8 +380,8 @@ BufferedModel::BufferedModel(SDL_GPUDevice* gpu, SDL_Window* window, std::unique
     ShaderParameters vertex, ShaderParameters fragment)
     : m_model { std::move(model) }
     , m_GPUDevice { gpu }
-    // Vertex data: position (3 floats) + normal (3 floats) = 6 floats per vertex
-    , m_vertexBufSize { static_cast<Uint32>(sizeof(glm::vec3) * 2 * (m_model->vertices().size())) }
+    // Vertex data: position (16 bytes) + normal (16 bytes) = 32 bytes per vertex
+    , m_vertexBufSize { static_cast<Uint32>(32 * (m_model->vertices().size())) }
     , m_indexBufSize { static_cast<Uint16>(sizeof(Uint16) * 3 * m_model->faces().size()) }
     , m_drawBufSize { sizeof(SDL_GPUIndexedIndirectDrawCommand) * 1 }
 {
@@ -412,15 +421,26 @@ void BufferedModel::uploadModel()
     SDL_GPUTransferBuffer* tempVertexIndexTransfer = SDL_CreateGPUTransferBuffer(
         m_GPUDevice, &tempVertexIndexTransferInfo);
 
-    // Interleaved vertex format: position (12 bytes) + normal (12 bytes) per vertex
+    // Interleaved vertex format for Metal: position (16 bytes) + normal (16 bytes) per vertex
+    // NOTE: Metal's float3 vertex attribute has 16-byte alignment, not 12!
+    // The struct must be 32 bytes total to match Metal's expected layout.
     struct VertexPN {
-        glm::vec3 pos;
-        glm::vec3 normal;
+        float pos[3];     // offset 0, GPU reads 16 bytes (12 + 4 pad)
+        float _pad1[1];    // offset 12, padding to align normal to 16
+        float normal[3];   // offset 16, GPU reads 16 bytes (12 + 4 pad)
+        float _pad2[1];   // offset 28, padding to make total 32 bytes
     };
+    static_assert(sizeof(VertexPN) == 32, "VertexPN must be 32 bytes for Metal float3 alignment");
     VertexPN* vertexTransfer = (VertexPN*)SDL_MapGPUTransferBuffer(m_GPUDevice, tempVertexIndexTransfer, false);
     for (size_t i = 0; i < m_model->vertices().size(); i++) {
-        vertexTransfer[i].pos = m_model->vertices()[i];
-        vertexTransfer[i].normal = m_model->normals()[i];
+        vertexTransfer[i].pos[0] = m_model->vertices()[i].x;
+        vertexTransfer[i].pos[1] = m_model->vertices()[i].y;
+        vertexTransfer[i].pos[2] = m_model->vertices()[i].z;
+        vertexTransfer[i]._pad1[0] = 0.0f;
+        vertexTransfer[i].normal[0] = m_model->normals()[i].x;
+        vertexTransfer[i].normal[1] = m_model->normals()[i].y;
+        vertexTransfer[i].normal[2] = m_model->normals()[i].z;
+        vertexTransfer[i]._pad2[0] = 0.0f;
     }
 
     // Index buffer: triangle i starts at index 3*i (vertex i*3, i*3+1, i*3+2)
@@ -498,7 +518,7 @@ MapDisplacedBufferedModel::MapDisplacedBufferedModel(SDL_GPUDevice* gpu, SDL_Win
     : BufferedModel(gpu, window, std::move(model), vertex, fragment)
 {
     SDL_GPUBufferCreateInfo mapBufferCreateInfo = {
-        .usage = SDL_GPU_BUFFERUSAGE_GRAPHICS_STORAGE_READ,
+        .usage = SDL_GPU_BUFFERUSAGE_VERTEX,  // Must be VERTEX for slot 1 (Metal restriction)
         .size = (Uint32)(s_maxRenderCopies * sizeof(DisplacementColorInfo))
     };
     m_mapDataBuffer = SDL_CreateGPUBuffer(m_GPUDevice, &mapBufferCreateInfo);
@@ -520,7 +540,7 @@ void MapDisplacedBufferedModel::pushMapData(const GameMap& map, SDL_GPUCommandBu
         mappedDisplacementColor[idx].shiftX = renderCoords2D.x;
         mappedDisplacementColor[idx].shiftY = renderCoords2D.y;
         mappedDisplacementColor[idx].tileType = static_cast<float>(std::to_underlying(tile.type()));
-        mappedDisplacementColor[idx].padding1 = 0.0f;
+        mappedDisplacementColor[idx].padding = 0.0f;
         mappedDisplacementColor[idx].color = mapTypeToColor(tile.type());
         // TODO: hard limit on # map entries
         if (++idx >= s_maxRenderCopies)
@@ -582,9 +602,8 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
     SDL_GPUShader* vertexShader = loadShader(m_GPUDevice, vertex);
     SDL_GPUShader* fragShader = loadShader(m_GPUDevice, fragment);
 
-    // Vertex format: position (12 bytes) + normal (12 bytes) = 24 bytes stride
-    // Per-instance vertex buffer: tile shift (12 bytes) + color (16 bytes) = 28 bytes
-    // Both buffers use VERTEX input rate (no INSTANCE — Metal restriction on vertex buffers)
+    // Vertex format: position (16 bytes) + normal (16 bytes) = 32 bytes stride
+    // NOTE: Metal's float3 has 16-byte alignment in vertex attribute arrays
     SDL_GPUVertexAttribute vertexAttributes[] = {
         { .location = 0,
             .buffer_slot = 0,
@@ -593,7 +612,7 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         { .location = 1,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .offset = sizeof(glm::vec3) },       // normal at offset 12
+            .offset = 16 },                      // normal at offset 16 (float3 = 16 bytes in Metal)
         { .location = 2,
             .buffer_slot = 1,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
@@ -601,16 +620,17 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         { .location = 3,
             .buffer_slot = 1,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
-            .offset = sizeof(glm::vec3) }        // tile color at offset 12
+            .offset = 16 },                     // tile color at offset 16
     };
     SDL_GPUVertexBufferDescription vertexBufferDescriptions[] = {
         { .slot = 0,
-            .pitch = 2 * sizeof(glm::vec3),    // stride: position + normal
+            .pitch = 32,                         // stride: position(16) + normal(16) = 32 bytes
             .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
             .instance_step_rate = 0 },
         { .slot = 1,
-            .pitch = sizeof(glm::vec3) + sizeof(glm::vec4),  // stride: shift + color
-            .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            // stride matches DisplacementColorInfo: float(4)+float(4)+float(4)+float(4)+vec4(16) = 32 bytes
+            .pitch = 32,
+            .input_rate = SDL_GPU_VERTEXINPUTRATE_INSTANCE,
             .instance_step_rate = 0 }
     };
     // TODO add more vertex buffers here, one for map, one for each actor etc?
@@ -641,7 +661,7 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         .compare_mask = 0,
         .write_mask = 0,
         .enable_depth_test = true,
-        .enable_depth_write = false,  // Don't write depth — imgui renders on top without depth write
+        .enable_depth_write = true,
         .enable_stencil_test = false,
     };
     SDL_GPUMultisampleState multisampleState = {
