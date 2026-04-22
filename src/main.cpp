@@ -353,7 +353,9 @@ int main(int argc, char* argv[])
             }
 
             // Process mouse input separately from SDL_PollEvent to reduce overhead
-            if (!io.WantCaptureMouse) {
+            // When overlay is hidden, always allow mouse to control camera
+            // When overlay is visible, only allow if ImGui doesn't want mouse
+            if (!renderer.renderUI() || !io.WantCaptureMouse) {
                 std::unique_ptr<Turn> turn = processMouseInput(player);
                 if (turn) {
                     spdlog::debug("generated turn: {}", turn->asMessage().dump());
