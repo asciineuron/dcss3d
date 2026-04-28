@@ -48,7 +48,3 @@ dcss3d
 *.spv
 *.hlsl
 *.msl
-
-# External Libraries
-imgui/
-mdspan/

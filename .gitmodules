@@ -1,0 +1,6 @@
+[submodule "imgui"]
+	path = imgui
+	url = https://github.com/ocornut/imgui
+[submodule "mdspan"]
+	path = mdspan
+	url = https://github.com/kokkos/mdspan
