@@ -1,5 +1,6 @@
 #include "Renderer.hpp"
 #include "GameMap.hpp"
+#include "imguilayouts.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlgpu3.h"
@@ -157,9 +158,10 @@ Renderer::Renderer()
 void Renderer::doRender(GameMap& map, const Camera& camera)
 {
     // do all rendering-related updates that don't require a command buffer pass first
-    ImDrawData* drawData = m_renderUI ? ImGui::GetDrawData() : nullptr;
+    const bool shouldRenderUI = m_renderUI || anyWindowsPinned();
+    ImDrawData* drawData = shouldRenderUI ? ImGui::GetDrawData() : nullptr;
     // TODO determine even without UI, for now just defaults to false so need menu open to skip rendering...
-    const bool isMinimized = m_renderUI ? (drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f) : false;
+    const bool isMinimized = shouldRenderUI ? (drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f) : false;
 
     // TODO instead have MapDisplacedBufferedModel do all the binding itself? and just call its render func which does this?
     glm::mat4 cameraView = camera.toViewProjection();
@@ -194,7 +196,7 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
             map.setDidRender(true);
         }
 
-        if (m_renderUI)
+        if (shouldRenderUI)
             ImGui_ImplSDLGPU3_PrepareDrawData(drawData, commandBuffer);
 
         // do actual rendering
@@ -239,7 +241,7 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
         SDL_EndGPURenderPass(scenePass);
 
         // Pass 2: ImGui — render on top, no depth buffer (which otherwise covers the window contents)
-        if (m_renderUI) {
+        if (shouldRenderUI) {
             SDL_GPUColorTargetInfo uiTargetInfo = {
                 .texture = swapchainTexture,
                 .load_op = SDL_GPU_LOADOP_LOAD,

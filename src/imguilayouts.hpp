@@ -51,6 +51,22 @@ bool loadWindowLayout(const char* filename);
 // Check if a layout file exists
 bool hasSavedLayout(const char* filename);
 
+// Pin state management for individual windows
+bool isWindowPinned(const char* windowName);
+void toggleWindowPin(const char* windowName);
+bool anyWindowsPinned();
+
+// Reusable pin button. Call inside a window after Begin().
+// Returns current pinned state (true = pinned).
+bool PinButton(const char* windowName);
+
+// Main window display orchestrator.
+// Handles layout management, pin state gating, and calls individual display functions.
+// Only renders windows that are visible (renderUI == true, or individually pinned).
+void displayAllWindows(bool renderUI, const Player& player, const GameMap& map,
+                       NetworkManager& networkManager, Renderer& renderer,
+                       const char* layoutFilename);
+
 void displayPlayer(const Player&);
 
 void displayMap(const GameMap&);

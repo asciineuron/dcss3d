@@ -168,48 +168,6 @@ WindowLayout getWindowLayoutCallback(const char* windowName)
     return layout;
 }
 
-// Apply a single window's layout (position and size)
-// Uses ImGuiCond_Always to apply explicitly when user loads a layout
-void applyWindowLayout(const char* windowName, const WindowLayout& layout)
-{
-    spdlog::debug("Applying layout for '{}': pos=({},{}), size=({},{}), valid={}",
-                  windowName, layout.posX, layout.posY, layout.sizeX, layout.sizeY, layout.isValid);
-    ImGui::SetNextWindowPos(ImVec2(layout.posX, layout.posY), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(layout.sizeX, layout.sizeY), ImGuiCond_Always);
-    if (layout.isCollapsed) {
-        ImGui::SetNextWindowCollapsed(true, ImGuiCond_Always);
-    }
-}
-
-// Apply reset layout (cascading from top-left, auto-sized)
-// Uses ImGuiCond_Always to apply explicitly when user resets
-void applyResetLayout(const char* windowName, int index)
-{
-    ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImVec2 basePos = viewport->Pos;
-
-    // Cascade windows: each 60px offset from previous
-    float offset = 60.0f * index;
-    ImGui::SetNextWindowPos(ImVec2(basePos.x + offset, basePos.y + offset), ImGuiCond_Always);
-    // Size 0,0 means auto-size
-    ImGui::SetNextWindowSize(ImVec2(0, 0), ImGuiCond_Always);
-}
-
-// Get index for a window name (for cascading reset)
-int getWindowIndex(const char* windowName)
-{
-    static const std::vector<std::string> windowNames = {
-        "Demo", "player", "map", "network", "renderer", "settings"
-    };
-
-    for (int i = 0; i < static_cast<int>(windowNames.size()); ++i) {
-        if (windowNames[i] == windowName) {
-            return i;
-        }
-    }
-    return 0;
-}
-
 int main(int argc, char* argv[])
 {
     spdlog::set_level(spdlog::level::debug);
@@ -241,82 +199,8 @@ int main(int argc, char* argv[])
             ImGui_ImplSDL3_NewFrame();
             ImGui::NewFrame();
 
-            // Check pending layout actions
-            const bool shouldReset = windowLayoutNeedsReset();
-            const WindowLayout* pendingLayout = getPendingLayout();
-            const char* pendingName = getPendingLayoutName();
-            const size_t pendingLayoutCount = getPendingLayoutCount();
-
-            if (pendingLayout && pendingLayoutCount > 0) {
-                spdlog::debug("Pending layout load: {} windows", pendingLayoutCount);
-            }
-
-            // Helper lambda to find and apply layout for a window
-            auto applyLayoutForWindow = [](const char* windowName, const WindowLayout* layout, size_t count) {
-                spdlog::debug("applyLayoutForWindow called: name='{}', count={}", windowName, count);
-                for (size_t i = 0; i < count; ++i) {
-                    spdlog::debug("  Checking[{}]: name='{}', isValid={}", i, layout[i].name, layout[i].isValid);
-                    if (layout[i].name == windowName && layout[i].isValid) {
-                        spdlog::debug("  Match found, calling applyWindowLayout");
-                        applyWindowLayout(windowName, layout[i]);
-                        break;
-                    }
-                }
-            };
-
-            // Track which windows we've applied this frame
-            // Apply layouts BEFORE Begin() calls
-
-            // Demo window
-            if (shouldReset) {
-                applyResetLayout("Demo", 0);
-            } else if (pendingLayout && pendingLayoutCount > 0) {
-                applyLayoutForWindow("Demo", pendingLayout, pendingLayoutCount);
-            }
-
-            // player window
-            if (shouldReset) {
-                applyResetLayout("player", 1);
-            } else if (pendingLayout && pendingLayoutCount > 0) {
-                applyLayoutForWindow("player", pendingLayout, pendingLayoutCount);
-            }
-            displayPlayer(player);
-
-            // map window
-            if (shouldReset) {
-                applyResetLayout("map", 2);
-            } else if (pendingLayout && pendingLayoutCount > 0) {
-                applyLayoutForWindow("map", pendingLayout, pendingLayoutCount);
-            }
-            displayMap(map);
-
-            // network window
-            if (shouldReset) {
-                applyResetLayout("network", 3);
-            } else if (pendingLayout && pendingLayoutCount > 0) {
-                applyLayoutForWindow("network", pendingLayout, pendingLayoutCount);
-            }
-            networkMenu(networkManager);
-
-            // renderer window
-            if (shouldReset) {
-                applyResetLayout("renderer", 4);
-            } else if (pendingLayout && pendingLayoutCount > 0) {
-                applyLayoutForWindow("renderer", pendingLayout, pendingLayoutCount);
-            }
-            renderMenu(renderer);
-
-            // settings window
-            if (shouldReset) {
-                applyResetLayout("settings", 5);
-            } else if (pendingLayout && pendingLayoutCount > 0) {
-                applyLayoutForWindow("settings", pendingLayout, pendingLayoutCount);
-            }
-            settingsMenu(LAYOUT_FILENAME);
-
-            if (shouldReset || (pendingLayout && pendingLayoutCount > 0)) {
-                clearPendingLayoutAction();
-            }
+            // Display all ImGui windows — layout management, pin gating, and content
+            displayAllWindows(renderer.renderUI(), player, map, networkManager, renderer, LAYOUT_FILENAME);
 
             ImGui::Render();
 
@@ -330,7 +214,15 @@ int main(int argc, char* argv[])
             {
                 SDL_Event event;
                 while (SDL_PollEvent(&event)) {
-                    ImGui_ImplSDL3_ProcessEvent(&event);
+                    // When overlay is disabled, skip mouse events to ImGui entirely.
+                    // Pinned windows are read-only overlays — no hover, no clicks.
+                    bool isMouseEvent = (event.type == SDL_EVENT_MOUSE_MOTION ||
+                                        event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+                                        event.type == SDL_EVENT_MOUSE_BUTTON_UP ||
+                                        event.type == SDL_EVENT_MOUSE_WHEEL);
+                    if (!isMouseEvent || renderer.renderUI()) {
+                        ImGui_ImplSDL3_ProcessEvent(&event);
+                    }
 
                     // Always process keyboard events for Escape key, regardless of ImGui capture state
                     // This ensures we can always toggle the UI overlay even when in relative mouse mode
@@ -352,10 +244,11 @@ int main(int argc, char* argv[])
                 }
             }
 
-            // Process mouse input separately from SDL_PollEvent to reduce overhead
-            // When overlay is hidden, always allow mouse to control camera
-            // When overlay is visible, only allow if ImGui doesn't want mouse
-            if (!renderer.renderUI() || !io.WantCaptureMouse) {
+            // Process mouse input separately from SDL_PollEvent to reduce overhead.
+            // When UI is fully visible, mouse never controls camera.
+            // When UI is hidden (even with pinned overlay windows visible),
+            // mouse always controls camera — pinned windows are read-only.
+            if (!renderer.renderUI()) {
                 std::unique_ptr<Turn> turn = processMouseInput(player);
                 if (turn) {
                     spdlog::debug("generated turn: {}", turn->asMessage().dump());

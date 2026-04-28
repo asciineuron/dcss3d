@@ -1,8 +1,15 @@
 # Work Notes
 
-## Current Status: Equipment Display & Batch Parsing Fixed
+## Current Status: ImGui Pin & Mouse Fix (uncommitted, on `fix/imgui-pin-and-mouse`)
 
-The equipment UI and batch message parsing bug are both fixed (uncommitted, on `fix/player-state-ui`). Ready for playtest.
+Ready for playtest.
+
+### In Progress: ImGui Pin Button & Mouse Input Fix
+- Fixed mouse input: camera no longer moves when ImGui overlay is visible
+- Added reusable `PinButton()` per-window toggle — pinned windows stay visible as read-only overlays when overlay is dismissed
+- Refactored window display logic from `main.cpp` into `displayAllWindows()` in `imguilayouts.cpp`
+- `Renderer::doRender()` now renders ImGui when pinned windows exist even if renderUI is false
+- Swapped `||` to `&&` in mouse guard: `!renderer.renderUI() && !io.WantCaptureMouse`
 
 ## Recent Work
 

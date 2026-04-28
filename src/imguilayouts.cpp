@@ -10,6 +10,7 @@
 #include <mutex>
 #include <ranges>
 #include <sstream>
+#include <unordered_map>
 
 namespace {
 // Action to perform this frame
@@ -26,6 +27,9 @@ const char* g_pendingLayoutFilename = nullptr;
 
 // Callback to get current window layout
 WindowLayoutCallback g_windowLayoutCallback = nullptr;
+
+// Pin state: window name -> is pinned
+std::unordered_map<std::string, bool> g_pinState;
 
 // Strip DCSS color tags like <brown>, <lightgreen>, <w> from a string
 std::string stripColorTags(const std::string& str)
@@ -45,6 +49,152 @@ std::string stripColorTags(const std::string& str)
     return out;
 }
 } // namespace
+
+// --- Pin state management ---
+
+bool isWindowPinned(const char* windowName)
+{
+    auto it = g_pinState.find(windowName);
+    return it != g_pinState.end() && it->second;
+}
+
+void toggleWindowPin(const char* windowName)
+{
+    g_pinState[windowName] = !isWindowPinned(windowName);
+    spdlog::debug("Window '{}' pinned: {}", windowName, g_pinState[windowName]);
+}
+
+bool anyWindowsPinned()
+{
+    for (const auto& [name, pinned] : g_pinState) {
+        if (pinned) return true;
+    }
+    return false;
+}
+
+bool PinButton(const char* windowName)
+{
+    bool isPinned = isWindowPinned(windowName);
+
+    ImVec4 pinColor = isPinned ? ImVec4(0.3f, 0.6f, 1.0f, 1.0f) : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, pinColor);
+
+    bool clicked = ImGui::SmallButton(isPinned ? "*" : "o");
+
+    ImGui::PopStyleColor();
+
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+        ImGui::SetTooltip(isPinned ? "Unpin window" : "Pin window (stays visible when overlay hidden)");
+    }
+
+    if (clicked) {
+        toggleWindowPin(windowName);
+        return !isPinned;
+    }
+    return isPinned;
+}
+
+// --- Window display orchestrator ---
+
+// Apply a single window's layout (position and size) — used by displayAllWindows
+static void applyWindowLayout(const char* windowName, const WindowLayout& layout)
+{
+    spdlog::debug("Applying layout for '{}': pos=({},{}), size=({},{}), valid={}",
+                  windowName, layout.posX, layout.posY, layout.sizeX, layout.sizeY, layout.isValid);
+    ImGui::SetNextWindowPos(ImVec2(layout.posX, layout.posY), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(layout.sizeX, layout.sizeY), ImGuiCond_Always);
+    if (layout.isCollapsed) {
+        ImGui::SetNextWindowCollapsed(true, ImGuiCond_Always);
+    }
+}
+
+// Apply reset layout (cascading from top-left, auto-sized)
+static void applyResetLayout(const char* windowName, int index)
+{
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 basePos = viewport->Pos;
+    float offset = 60.0f * index;
+    ImGui::SetNextWindowPos(ImVec2(basePos.x + offset, basePos.y + offset), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(0, 0), ImGuiCond_Always);
+}
+
+void displayAllWindows(bool renderUI, const Player& player, const GameMap& map,
+                       NetworkManager& networkManager, Renderer& renderer,
+                       const char* layoutFilename)
+{
+    const bool shouldReset = windowLayoutNeedsReset();
+    const WindowLayout* pendingLayout = getPendingLayout();
+    const size_t pendingLayoutCount = getPendingLayoutCount();
+
+    if (pendingLayout && pendingLayoutCount > 0) {
+        spdlog::debug("Pending layout load: {} windows", pendingLayoutCount);
+    }
+
+    // Helper lambda to find and apply layout for a window
+    auto applyLayoutForWindow = [](const char* windowName, const WindowLayout* layout, size_t count) {
+        for (size_t i = 0; i < count; ++i) {
+            if (layout[i].name == windowName && layout[i].isValid) {
+                spdlog::debug("  Applying saved layout for '{}'", windowName);
+                applyWindowLayout(windowName, layout[i]);
+                break;
+            }
+        }
+    };
+
+    // Player window (index 0)
+    if (renderUI || isWindowPinned("player")) {
+        if (shouldReset) {
+            applyResetLayout("player", 0);
+        } else if (pendingLayout && pendingLayoutCount > 0) {
+            applyLayoutForWindow("player", pendingLayout, pendingLayoutCount);
+        }
+        displayPlayer(player);
+    }
+
+    // Map window (index 1)
+    if (renderUI || isWindowPinned("map")) {
+        if (shouldReset) {
+            applyResetLayout("map", 1);
+        } else if (pendingLayout && pendingLayoutCount > 0) {
+            applyLayoutForWindow("map", pendingLayout, pendingLayoutCount);
+        }
+        displayMap(map);
+    }
+
+    // Network window (index 2)
+    if (renderUI || isWindowPinned("network")) {
+        if (shouldReset) {
+            applyResetLayout("network", 2);
+        } else if (pendingLayout && pendingLayoutCount > 0) {
+            applyLayoutForWindow("network", pendingLayout, pendingLayoutCount);
+        }
+        networkMenu(networkManager);
+    }
+
+    // Renderer window (index 3)
+    if (renderUI || isWindowPinned("renderer")) {
+        if (shouldReset) {
+            applyResetLayout("renderer", 3);
+        } else if (pendingLayout && pendingLayoutCount > 0) {
+            applyLayoutForWindow("renderer", pendingLayout, pendingLayoutCount);
+        }
+        renderMenu(renderer);
+    }
+
+    // Settings window (index 4)
+    if (renderUI || isWindowPinned("settings")) {
+        if (shouldReset) {
+            applyResetLayout("settings", 4);
+        } else if (pendingLayout && pendingLayoutCount > 0) {
+            applyLayoutForWindow("settings", pendingLayout, pendingLayoutCount);
+        }
+        settingsMenu(layoutFilename);
+    }
+
+    if (shouldReset || (pendingLayout && pendingLayoutCount > 0)) {
+        clearPendingLayoutAction();
+    }
+}
 
 void registerWindowForReset(const char* windowName)
 {
@@ -103,9 +253,8 @@ bool saveWindowLayout(const char* filename)
     }
 
     // Get all window names and their current layouts
-    // Window names are defined in main.cpp
     const char* windowNames[] = {
-        "Demo", "player", "map", "network", "renderer", "settings"
+        "player", "map", "network", "renderer", "settings"
     };
 
     std::ostringstream json;
@@ -228,6 +377,8 @@ bool loadWindowLayout(const char* filename)
 void settingsMenu(const char* layoutFilename)
 {
     ImGui::Begin("settings");
+    PinButton("settings");
+    ImGui::Spacing();
 
     ImGui::SeparatorText("Window Layout");
     ImGui::Spacing();
@@ -268,6 +419,8 @@ void settingsMenu(const char* layoutFilename)
 void displayPlayer(const Player& player)
 {
     ImGui::Begin("player");
+    PinButton("player");
+    ImGui::Spacing();
 
     const auto& d = player.data();
 
@@ -525,6 +678,8 @@ void displayPlayer(const Player& player)
 void displayMap(const GameMap& map)
 {
     ImGui::Begin("map");
+    PinButton("map");
+    ImGui::Spacing();
 
     ImGui::Text("map:");
     
@@ -592,6 +747,8 @@ void displayMap(const GameMap& map)
 void networkMenu(NetworkManager& net)
 {
     ImGui::Begin("network");
+    PinButton("network");
+    ImGui::Spacing();
 
     // Connection status indicator
     if (net.isConnected()) {
@@ -664,6 +821,8 @@ void networkMenu(NetworkManager& net)
 void renderMenu(Renderer& renderer)
 {
     ImGui::Begin("renderer");
+    PinButton("renderer");
+    ImGui::Spacing();
 
     ImGui::Text("%s", std::format("skip collision: {}", skipCollisionCheck).c_str());
 
