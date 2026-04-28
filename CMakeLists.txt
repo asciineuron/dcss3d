@@ -22,6 +22,10 @@ target_sources(dcss3d_obj PRIVATE
 	src/PlayerState.cpp
 	src/Renderer.hpp
 	src/Renderer.cpp
+	src/ShaderUtil.hpp
+	src/ShaderUtil.cpp
+	src/Skybox.hpp
+	src/Skybox.cpp
 	src/main.cpp
 	src/imguilayouts.hpp
 	src/imguilayouts.cpp
@@ -120,6 +124,8 @@ set(SLANG_SHADERS
     ${PROJECT_SOURCE_DIR}/shaders/position_color_shifted.slang
     ${PROJECT_SOURCE_DIR}/shaders/lit.slang
     ${PROJECT_SOURCE_DIR}/shaders/solid.slang
+    ${PROJECT_SOURCE_DIR}/shaders/skybox_vertex.slang
+    ${PROJECT_SOURCE_DIR}/shaders/skybox_fragment.slang
 )
 
 set(SHADER_TARGETS "")

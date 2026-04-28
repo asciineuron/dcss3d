@@ -29,61 +29,21 @@ glm::mat4 Camera::toViewProjection() const
     return perspective * lookAt;
 }
 
-SDL_GPUShader* loadShader(SDL_GPUDevice* device, const ShaderParameters& parameters)
+glm::mat4 Camera::toSkyViewProjection() const
 {
-    SDL_GPUShaderStage stage;
-    if (parameters.filename.contains(".vert")) {
-        stage = SDL_GPU_SHADERSTAGE_VERTEX;
-    } else if (parameters.filename.contains(".frag")) {
-        stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
-    } else {
-        throw std::runtime_error(std::format("invalid shader extension for {}", parameters.filename));
-    }
+    float cosPhi = std::cos(phi);
+    glm::vec3 lookDir = glm::normalize(glm::vec3(
+        cosPhi * std::cos(-theta),
+        std::sin(phi),
+        cosPhi * std::sin(-theta)));
 
-    SDL_GPUShaderFormat backendFormats = SDL_GetGPUShaderFormats(device);
-    SDL_GPUShaderFormat format = SDL_GPU_SHADERFORMAT_INVALID;
-    const char* entrypoint;
-    std::string_view extension;
-    if (backendFormats & SDL_GPU_SHADERFORMAT_SPIRV) {
-        format = SDL_GPU_SHADERFORMAT_SPIRV;
-        extension = ".spv";
-        entrypoint = "main";
-    } else if (backendFormats & SDL_GPU_SHADERFORMAT_MSL) {
-        format = SDL_GPU_SHADERFORMAT_MSL;
-        extension = ".metal";
-        entrypoint = "main_0";
-    } else if (backendFormats & SDL_GPU_SHADERFORMAT_DXIL) {
-        format = SDL_GPU_SHADERFORMAT_DXIL;
-        extension = ".dxil";
-        entrypoint = "main";
-    } else {
-        throw std::runtime_error("unrecognized backend shader format");
-    }
-
-    const std::string shaderPath = std::format("{}shaders/{}{}", SDL_GetBasePath(), parameters.filename, extension);
-
-    auto codeLen = fs::file_size(shaderPath);
-    std::ifstream shaderFile(shaderPath);
-    std::string code;
-    code.resize_and_overwrite(codeLen, [&](char* buf, std::size_t len) { shaderFile.read(buf, len); return shaderFile.gcount(); });
-
-    SDL_GPUShaderCreateInfo shaderInfo = {
-        .code_size = codeLen,
-        .code = (Uint8*)code.c_str(),
-        .entrypoint = entrypoint,
-        .format = format,
-        .stage = stage,
-        .num_samplers = parameters.samplerCount,
-        .num_storage_textures = parameters.storageTextureCount,
-        .num_storage_buffers = parameters.storageBufferCount,
-        .num_uniform_buffers = parameters.uniformBufferCount,
-    };
-    SDL_GPUShader* shader = SDL_CreateGPUShader(device, &shaderInfo);
-    if (!shader) {
-        throw std::runtime_error("failed to create shader");
-    }
-    return shader;
+    glm::mat4 lookAt = glm::lookAt(pos, pos + lookDir, glm::vec3(0.0f, 1.0f, 0.0f));
+    glm::mat4 perspective = glm::perspective(fov, aspectRatio, 0.1f, 100.0f);
+    // Strip translation: convert to 3x3 (rotation only) and back to 4x4.
+    // This keeps the skybox centered on the camera regardless of position.
+    return perspective * glm::mat4(glm::mat3(lookAt));
 }
+
 
 Renderer::Renderer()
     : m_window { nullptr }
@@ -121,6 +81,9 @@ Renderer::Renderer()
         throw std::runtime_error(std::format("SDL_SetGPUSwapchainParameters error: {}", SDL_GetError()));
 
     createDepthTexture();
+
+    // Skybox must be created after depth texture and before models
+    m_skybox = std::make_unique<Skybox>(m_GPUDevice, m_window);
 
     m_mapCubeModel = std::make_unique<MapDisplacedBufferedModel>(
         m_GPUDevice, m_window, std::make_unique<Model>("cube1.obj"),
@@ -238,6 +201,14 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
             m_monsterModel->draw(scenePass);
         }
 
+        // Draw skybox LAST — uses xyww trick (depth=1.0) with LESS_OR_EQUAL test.
+        // Only fragments where no scene geometry was drawn will be shaded.
+        // View matrix has translation stripped so skybox stays centered on camera.
+        // Must push uniform on commandBuffer (not renderPass) before the draw call.
+        glm::mat4 skyViewProj = camera.toSkyViewProjection();
+        SDL_PushGPUVertexUniformData(commandBuffer, 0, glm::value_ptr(skyViewProj), sizeof(skyViewProj));
+        m_skybox->draw(scenePass, skyViewProj);
+
         SDL_EndGPURenderPass(scenePass);
 
         // Pass 2: ImGui — render on top, no depth buffer (which otherwise covers the window contents)
@@ -279,6 +250,7 @@ Renderer::~Renderer()
     // shared ptrs automatically deleted with proper funcs
     // TODO causes segfault, maybe since child Model class frees afterwards?
     m_mapCubeModel->release();
+    m_skybox.reset();  // release before GPU device is destroyed
 
     releaseDepthTexture();
 
