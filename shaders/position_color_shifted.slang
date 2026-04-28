@@ -42,8 +42,12 @@ struct main_out {
 main_out main(main_in input)
 {
     float shiftY = 0.0f;
-    if (int(input.shiftData.z) == map_type::MTYPE_FLOOR || int(input.shiftData.z) == map_type::MTYPE_UNEXPLORED)
+    // Monster sentinel: tileType 999 means "don't sink, it's a monster"
+    if (int(input.shiftData.z) == 999) {
+        shiftY = 0.0f;
+    } else if (int(input.shiftData.z) == map_type::MTYPE_FLOOR || int(input.shiftData.z) == map_type::MTYPE_UNEXPLORED) {
         shiftY = -1.0f;
+    }
 
     float3 shift = { input.shiftData.x, shiftY, input.shiftData.y };
     float4x4 tile_translate = IDENTITY_MATRIX;
