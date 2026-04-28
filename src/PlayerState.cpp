@@ -87,10 +87,12 @@ void Player::handlePlayerMessage(const json& message)
             item.slot = slot;
             if (auto n = itemJson.find("name"); n != itemJson.end())
                 item.name = n->get<std::string>();
-            if (auto c = itemJson.find("count"); c != itemJson.end())
+            if (auto c = itemJson.find("quantity"); c != itemJson.end())
                 item.count = c->get<int>();
             if (auto i = itemJson.find("idx"); i != itemJson.end())
                 item.idx = i->get<int>();
+            if (auto bt = itemJson.find("base_type"); bt != itemJson.end())
+                item.base_type = bt->get<int>();
         }
     }
 
@@ -134,7 +136,9 @@ void Player::handlePlayerMessage(const json& message)
     setIf("int_max", m_data.intel_max);
     setIf("dex_max", m_data.dex_max);
     setIf("piety_rank", m_data.piety_rank);
-    setIf("penance", m_data.penance);
+    // penance: server sends as integer 0/1, not bool
+    if (auto it = message.find("penance"); it != message.end() && it->is_number())
+        m_data.penance = it->get<int>() != 0;
     setIf("wizard", m_data.wizard);
     setIf("explore", m_data.explore);
     setIf("depth", m_data.depth);
@@ -144,8 +148,13 @@ void Player::handlePlayerMessage(const json& message)
     setIf("adjusted_noise", m_data.adjusted_noise);
     setIf("weapon_index", m_data.weapon_index);
     setIf("offhand_index", m_data.offhand_index);
+    // offhand_weapon: server sends as integer 0/1, not bool
+    if (auto it = message.find("offhand_weapon"); it != message.end() && it->is_number())
+        m_data.offhand_weapon = it->get<int>() != 0;
     setIf("quiver_item", m_data.quiver_item);
+    setIf("quiver_desc", m_data.quiver_desc);
     setIf("unarmed_attack", m_data.unarmed_attack);
+    setIf("unarmed_attack_colour", m_data.unarmed_attack_colour);
 
     // status: array of strings
     if (auto status = message.find("status"); status != message.end() && status->is_array()) {
@@ -166,6 +175,9 @@ void Player::handlePlayerMessage(const json& message)
                   m_data.name, m_data.xl, m_data.hp, m_data.hp_max,
                   m_data.mp, m_data.mp_max, m_data.ac, m_data.ev, m_data.sh,
                   m_data.pos_x, m_data.pos_y, m_data.place, m_data.depth);
+    spdlog::debug("  Equipment: w_idx={} off_idx={} off_wpn={} q_item={} q_desc='{}' unarmed='{}'",
+                  m_data.weapon_index, m_data.offhand_index, m_data.offhand_weapon,
+                  m_data.quiver_item, m_data.quiver_desc, m_data.unarmed_attack);
 }
 
 static float wrap(float x, float min, float max)

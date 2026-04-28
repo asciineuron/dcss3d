@@ -1,12 +1,25 @@
 # Work Notes
 
-## Current Status: Inventory Grid UI In Progress
+## Current Status: Equipment Display & Batch Parsing Fixed
 
-Player state handling is committed. The inventory display has been replaced with a compact 52-slot grid + popup details view. Uncommitted changes in `src/imguilayouts.cpp`.
+The equipment UI and batch message parsing bug are both fixed (uncommitted, on `fix/player-state-ui`). Ready for playtest.
 
 ## Recent Work
 
-### Player State & UI (fix/player-state-ui, committed: 31f36cc)
+### Equipment Display & Batch Fix (uncommitted)
+- Added `offhand_weapon`, `quiver_desc`, `unarmed_attack_colour` fields to `PlayerData`
+- Added equipment section in `displayPlayer()`: weapon, offhand, quiver, fallback message
+- Added debug logging for equipment field values
+- **FIXED** `parseResponseMessages()` in `MessageQueue.cpp`: `"msgs"` batch path now correctly extracts `.value()` from key-value pairs (was pushing the full pair, wrapping messages in extra object layer and silently dropping them)
+- Handles both `"msgs"` as object (integer keys → values) and as array
+
+### Inventory Grid (committed: c4bd2ed)
+- Replaced collapsible inventory list with compact 52-slot grid (4×13: a-m, n-z, A-M, N-Z)
+- Empty slots dim grey, occupied slots gold with hover tooltip
+- "Inventory Details" toggle button opens scrollable detailed list
+- Removed unused `glm/gtx/string_cast.hpp` include
+
+### Player State & UI (committed: 31f36cc)
 - Added `PlayerData` struct and `InventoryItem` struct in `PlayerState.hpp` mirroring the upstream JS `player` object field-for-field
 - Added `Player::handlePlayerMessage()` method that mirrors the JS `handle_player_message()` logic
 - Registered `"player"` message type in handler config alongside existing `"map"`
@@ -14,17 +27,6 @@ Player state handling is committed. The inventory display has been replaced with
   - Player identity, HP/MP bars, defenses, location, attributes, status effects
   - Collapsible Camera debug section
 - Builds cleanly, all 83 existing assertions pass
-
-### Inventory Grid (uncommitted)
-- Replaced collapsible inventory list with a **compact 52-slot grid** (4 rows × 13 columns: a-m, n-z, A-M, N-Z)
-  - Empty slots: dim grey letter
-  - Occupied slots: gold/bright letter with hover tooltip showing item name + count
-- Added **"Inventory Details" toggle button** that opens a bordered, scrollable child window with the full item list
-- Removed unused `glm/gtx/string_cast.hpp` include
-
-Monster data parsing and storage has been implemented on the `feature/monster-data` branch. The `GameMap` class now stores both tile data (`m_map`) and monster data (`m_monsters` + `m_monsterTable`), following the same pattern as the crawl webtiles JavaScript client's `merge_monster()` logic.
-
-## Recent Work
 
 ### Monster Data (feature/monster-data)
 - Added `Monster` class with `merge(const json&)` method for partial updates
@@ -39,31 +41,22 @@ Monster data parsing and storage has been implemented on the `feature/monster-da
 - 16 unit tests covering: Monster construction, merge parsing, partial updates, null removal, global table merging, shift, clear
 
 **Key Files:**
-- `src/GameMap.hpp`: `Monster` class, `m_monsters` + `m_monsterTable` members, `getMonsterAt()`
-- `src/GameMap.cpp`: `Monster::merge()`, updated `updateMap()`, `cleanMonsterTable()`, updated `shift()`
-- `src/imguilayouts.cpp`: Updated `displayMap()` with monster markers and list
-- `tests/test_game_map.cpp`: 12 new monster test cases
-- `CMakeLists.txt`: Added source files + dependencies to test target
+- `src/PlayerState.hpp`: `InventoryItem`, `PlayerData` structs; `Player::data()` accessor; `handlePlayerMessage()` declaration
+- `src/PlayerState.cpp`: `handlePlayerMessage()` implementation with inventory merge, time_delta calc, field extension, equipment debug logging
+- `src/MessageQueue.cpp`: Fixed `parseResponseMessages()` batch path
+- `src/imguilayouts.cpp`: Updated `displayPlayer()` with HP/MP bars, stats, equipment, inventory grid, details popup
+- `src/main.cpp`: Added `"player"` to handlerConfig
 
 ## Architecture Notes
 
-### Monster Data Flow
-1. Server sends `map` message with `cells[]` containing optional `mon` field per cell
-2. `GameMap::updateMap()` processes each cell:
-   - `mon` object → merge into `m_monsterTable[id]`, set `m_monsters[pos] = id`
-   - `mon: null` → erase from `m_monsters[pos]`
-   - No `mon` field → leave unchanged
-3. After all cells, `cleanMonsterTable()` removes any IDs with zero cell references
-4. On `clear`, both structures are wiped
+### Player Data Flow
+1. Server sends `"player"` messages with partial or full player state
+2. `Player::handleMessage()` dispatches to `handlePlayerMessage()` for `"player"` type
+3. `handlePlayerMessage()` merges inventory slots, calculates time_delta, extends remaining fields via `setIf` lambda
+4. `displayPlayer()` reads `PlayerData` and renders HP/MP bars, stats, attributes, status, equipment, inventory grid
 
-### Design Decisions
-- **Global table approach**: Mirrors the JS client's `monster_table` keyed by `id`. Necessary because partial updates reference monsters by ID, not by position.
-- **Single-position enforcement**: When a monster ID appears at a new position, any old position referencing that ID is removed. This matches server behavior where a monster can only be at one position.
-- **No reference counting**: Unlike the JS client which uses `refs` for GC, we simply sweep for unreferenced IDs after each batch. Simpler, same result.
-- **Fallback from old cell data**: When a new monster ID appears at a cell that previously had a different monster, we copy the old monster's fields as fallback for any missing fields in the partial update (mirrors JS `merge_objects(old_mon, mon)`).
-
-### Future Work
-- 3D rendering of monsters (deferred to followup ticket)
-- Parse tile flags (`fg`) for damage level, poison, behavior, flying, etc.
-- Monster icon overlays (berserk, summoned, hasted, etc.)
-- Integration with mcache/sprite lookup for visual representation
+### Batch Message Parsing
+- Server sends initial full game state as `{"msgs": {"0": {...}, "1": {...}}}` (object with integer keys)
+- `parseResponseMessages()` now correctly extracts values from the key-value pairs
+- Subsequent messages arrive individually as `{"msg": "type", ...}`
+- Both paths feed into `processMessages()` which dispatches by `message["msg"]` type

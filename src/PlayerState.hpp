@@ -23,8 +23,9 @@ enum Direction;
 struct InventoryItem {
     std::string name;
     int count = 0;
-    int slot = -1;  // letter index ('a' = 0, 'b' = 1, ...)
-    int idx = -1;   // item type index
+    int slot = -1;    // letter index ('a' = 0, 'b' = 1, ...)
+    int idx = -1;     // item type index
+    int base_type = -1; // 0=weapon, 1=missile, 2=armour, 100=empty
 };
 
 struct PlayerData {
@@ -69,8 +70,11 @@ struct PlayerData {
 
     int weapon_index = -1;
     int offhand_index = -1;
+    bool offhand_weapon = false;  // true if dual-wielding (Coglin)
     int quiver_item = -1;
+    std::string quiver_desc;      // formatted quiver description
     std::string unarmed_attack;
+    int unarmed_attack_colour = 7; // default light grey
 
     int pos_x = 0;
     int pos_y = 0;

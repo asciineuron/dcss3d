@@ -31,8 +31,13 @@ void processMessages(handlerConfig& config, std::span<json> messages)
         }
     }
 
-    for (auto& result : results)
-        result.wait();
+    for (auto& result : results) {
+        try {
+            result.get();
+        } catch (const std::exception& e) {
+            spdlog::error("Message handler threw: {}", e.what());
+        }
+    }
 }
 
 NetworkManager::NetworkManager(std::string_view socketPath)
@@ -140,9 +145,14 @@ std::vector<json> parseResponseMessages(std::span<const char> response)
     json responseMessages = json::parse(response.begin(), response.end());
     // std::cout << "responseMessages: " << responseMessages << std::endl;
     if (responseMessages.contains("msgs")) {
-        // message list
-        for (auto& msg : responseMessages["msgs"].items()) {
-            messageList.push_back(std::move(msg));
+        // message list (object with integer keys or array)
+        auto& msgs = responseMessages["msgs"];
+        if (msgs.is_array()) {
+            for (auto& m : msgs)
+                messageList.push_back(std::move(m));
+        } else {
+            for (auto& [key, value] : msgs.items())
+                messageList.push_back(std::move(value));
         }
     } else if (responseMessages.contains("msg")) {
         // single message

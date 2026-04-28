@@ -26,6 +26,24 @@ const char* g_pendingLayoutFilename = nullptr;
 
 // Callback to get current window layout
 WindowLayoutCallback g_windowLayoutCallback = nullptr;
+
+// Strip DCSS color tags like <brown>, <lightgreen>, <w> from a string
+std::string stripColorTags(const std::string& str)
+{
+    std::string out;
+    out.reserve(str.size());
+    bool inTag = false;
+    for (char c : str) {
+        if (c == '<') {
+            inTag = true;
+        } else if (c == '>') {
+            inTag = false;
+        } else if (!inTag) {
+            out.push_back(c);
+        }
+    }
+    return out;
+}
 } // namespace
 
 void registerWindowForReset(const char* windowName)
@@ -301,6 +319,54 @@ void displayPlayer(const Player& player)
     ImGui::Text("XL: %-4d  Progress: %d%%", d.xl, d.progress);
     ImGui::Text("Gold: %d", d.gold);
 
+    // --- Equipment ---
+    ImGui::Separator();
+    ImGui::Text("Equipment:");
+    {
+        bool anyShown = false;
+
+        // Weapon
+        if (d.weapon_index >= 0) {
+            auto wit = d.inv.find(d.weapon_index);
+            char wletter = static_cast<char>(d.weapon_index < 26 ? 'a' + d.weapon_index : 'A' + d.weapon_index - 26);
+            if (wit != d.inv.end() && !wit->second.name.empty())
+                ImGui::Text("%c) %s", wletter, wit->second.name.c_str());
+            else
+                ImGui::Text("%c) (weapon)", wletter);
+            anyShown = true;
+        } else if (!d.unarmed_attack.empty()) {
+            ImGui::TextDisabled("%s", d.unarmed_attack.c_str());
+            anyShown = true;
+        }
+
+        // Offhand (only shown if dual-wielding)
+        if (d.offhand_weapon && d.offhand_index >= 0) {
+            auto oit = d.inv.find(d.offhand_index);
+            char oletter = static_cast<char>(d.offhand_index < 26 ? 'a' + d.offhand_index : 'A' + d.offhand_index - 26);
+            if (oit != d.inv.end() && !oit->second.name.empty())
+                ImGui::Text("%c) %s", oletter, oit->second.name.c_str());
+            else
+                ImGui::Text("%c) (offhand)", oletter);
+            anyShown = true;
+        }
+
+        // Quiver
+        if (!d.quiver_desc.empty()) {
+            std::string stripped = stripColorTags(d.quiver_desc);
+            ImGui::Text("Q: %s", stripped.c_str());
+            anyShown = true;
+        } else if (d.quiver_item >= 0) {
+            auto qit = d.inv.find(d.quiver_item);
+            char qletter = static_cast<char>(d.quiver_item < 26 ? 'a' + d.quiver_item : 'A' + d.quiver_item - 26);
+            if (qit != d.inv.end() && !qit->second.name.empty())
+                ImGui::Text("%c) %s", qletter, qit->second.name.c_str());
+            anyShown = true;
+        }
+
+        if (!anyShown)
+            ImGui::TextDisabled("(no equipment data yet)");
+    }
+
     ImGui::Separator();
 
     // --- Location ---
@@ -385,6 +451,54 @@ void displayPlayer(const Player& player)
         if (d.inv.empty()) {
             ImGui::TextDisabled("(inventory not yet received)");
         } else {
+            // --- Equipped summary at top ---
+            bool hasEquip = false;
+
+            // Wielded weapon
+            if (d.weapon_index >= 0) {
+                auto wit = d.inv.find(d.weapon_index);
+                if (wit != d.inv.end() && !wit->second.name.empty()) {
+                    char wl = static_cast<char>(d.weapon_index < 26 ? 'a' + d.weapon_index : 'A' + d.weapon_index - 26);
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%c) %s (weapon)", wl, wit->second.name.c_str());
+                    hasEquip = true;
+                }
+            }
+
+            // Offhand (dual-wield)
+            if (d.offhand_weapon && d.offhand_index >= 0) {
+                auto oit = d.inv.find(d.offhand_index);
+                if (oit != d.inv.end() && !oit->second.name.empty()) {
+                    char ol = static_cast<char>(d.offhand_index < 26 ? 'a' + d.offhand_index : 'A' + d.offhand_index - 26);
+                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%c) %s (offhand)", ol, oit->second.name.c_str());
+                    hasEquip = true;
+                }
+            }
+
+            // Quivered
+            if (d.quiver_item >= 0) {
+                auto qit = d.inv.find(d.quiver_item);
+                if (qit != d.inv.end() && !qit->second.name.empty()) {
+                    char ql = static_cast<char>(d.quiver_item < 26 ? 'a' + d.quiver_item : 'A' + d.quiver_item - 26);
+                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%c) %s (quivered)", ql, qit->second.name.c_str());
+                    hasEquip = true;
+                }
+            }
+
+            // Armour (base_type=2 items not already shown)
+            for (const auto& [slot, item] : d.inv) {
+                if (item.name.empty()) continue;
+                if (item.base_type != 2) continue;
+                if (slot == d.weapon_index || slot == d.offhand_index || slot == d.quiver_item) continue;
+                char al = static_cast<char>(slot < 26 ? 'a' + slot : 'A' + slot - 26);
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%c) %s (worn)", al, item.name.c_str());
+                hasEquip = true;
+            }
+
+            if (hasEquip) {
+                ImGui::Separator();
+            }
+
+            // Full inventory list
             for (const auto& [slot, item] : d.inv) {
                 if (item.name.empty()) continue;
                 char letter = static_cast<char>(slot < 26 ? 'a' + slot : 'A' + slot - 26);
