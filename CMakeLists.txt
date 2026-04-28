@@ -119,6 +119,7 @@ endfunction()
 set(SLANG_SHADERS
     ${PROJECT_SOURCE_DIR}/shaders/position_color_shifted.slang
     ${PROJECT_SOURCE_DIR}/shaders/lit.slang
+    ${PROJECT_SOURCE_DIR}/shaders/solid.slang
 )
 
 set(SHADER_TARGETS "")

@@ -126,6 +126,40 @@ private:
     static constexpr unsigned s_maxRenderCopies = 289; // 15^2 standard, 17^2 max, for Barachi
 };
 
+// Draws a shared model (e.g. monkey) at each monster position on the map.
+// Same pattern as MapDisplacedBufferedModel: slot 0 = per-vertex (position/normal/UV),
+// slot 1 = per-instance (DisplacementColorInfo: shift + color).
+class MonsterBufferedModel : public BufferedModel {
+public:
+    MonsterBufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
+        ShaderParameters vertex = { std::string_view("position_color_shifted.vert"), 0, 1, 1, 0 },
+        ShaderParameters fragment = { std::string_view("lit.frag"), 0, 1, 0, 0 },
+        std::string_view textureFilename = {});
+    ~MonsterBufferedModel();
+
+    void release() override;
+
+    void draw(SDL_GPURenderPass*) override;
+    void pushMonsterData(const GameMap&, SDL_GPUCommandBuffer*);
+
+private:
+    SDL_GPUBuffer* m_monsterInstanceBuffer {};
+    SDL_GPUTransferBuffer* m_monsterTransferBuf {};
+    bool m_hasReleased;
+
+    // Reusing the same 32-byte struct as MapDisplacedBufferedModel
+    struct DisplacementColorInfo {
+        float shiftX;
+        float shiftY;
+        float tileType;  // sentinel 999 = "don't sink, it's a monster"
+        float padding;
+        glm::vec4 color;
+    };
+
+    static constexpr unsigned s_maxMonsterInstances = 256;
+};
+
+
 std::ostream& operator<<(std::ostream& os, const Model& model);
 
 class Renderer {
@@ -153,6 +187,7 @@ private:
     SDL_GPUDevice* m_GPUDevice;
 
     std::unique_ptr<MapDisplacedBufferedModel> m_mapCubeModel;
+    std::unique_ptr<MonsterBufferedModel> m_monsterModel;
 
     SDL_WindowID m_windowID {};
     int m_windowWidth {};
@@ -165,6 +200,7 @@ private:
     SDL_GPUTexture* m_depthTexture {};
 
     void pushMapToGPU(const GameMap&, SDL_GPUCommandBuffer*);
+    void pushMonsterToGPU(const GameMap&, SDL_GPUCommandBuffer*);
     void createDepthTexture();
     void releaseDepthTexture();
 

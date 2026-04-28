@@ -127,6 +127,14 @@ Renderer::Renderer()
         ShaderParameters { std::string_view("lit.frag"), 1, 1, 0, 0 },
         std::string_view("resources/cube1_diffuse.png"));
 
+    // Monster placeholder model (monkey) — shared geometry for all monster types (MVP)
+    // Uses solid.frag (no texture) with per-instance attitude-based color.
+    m_monsterModel = std::make_unique<MonsterBufferedModel>(
+        m_GPUDevice, m_window, std::make_unique<Model>("monkey.obj"),
+        ShaderParameters { std::string_view("position_color_shifted.vert"), 0, 1, 0, 0 },
+        ShaderParameters { std::string_view("solid.frag"), 0, 1, 0, 0 });
+        // No texture — solid color only
+
     // imgui:
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -182,6 +190,7 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
         // upload all data via copy passes
         if (!map.didRender()) {
             pushMapToGPU(map, commandBuffer);
+            pushMonsterToGPU(map, commandBuffer);
             map.setDidRender(true);
         }
 
@@ -221,6 +230,12 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
         SDL_PushGPUFragmentUniformData(commandBuffer, 0, &lightData, sizeof(lightData));
 
         m_mapCubeModel->draw(scenePass);
+
+        // Draw monsters on top (depth-tested, same pass)
+        if (!map.monsterPositions().empty()) {
+            m_monsterModel->draw(scenePass);
+        }
+
         SDL_EndGPURenderPass(scenePass);
 
         // Pass 2: ImGui — render on top, no depth buffer (which otherwise covers the window contents)
@@ -250,6 +265,11 @@ const uint64_t Renderer::renderCount() const
 void Renderer::pushMapToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
 {
     m_mapCubeModel->pushMapData(map, cmdBuf);
+}
+
+void Renderer::pushMonsterToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
+{
+    m_monsterModel->pushMonsterData(map, cmdBuf);
 }
 
 Renderer::~Renderer()
@@ -327,9 +347,8 @@ void Model::loadObj(std::string_view filename)
             m_uvs.push_back(std::move(uv));
         } else if (type == "f") {
             // Handle OBJ face formats: v, v/t, v/t/n, v//n
-            Face face;
-            std::string v1, v2, v3;
-            ss >> v1 >> v2 >> v3;
+            // Supports both triangles (3 verts) and quads (4 verts).
+            // Quads are triangulated into two triangles: (0,1,2) and (0,2,3).
             
             // Parse vertex/texture indices from format like "5/1" or "5/1/1"
             auto parseObjIndex = [](const std::string& s) -> std::pair<int, int> {
@@ -345,14 +364,32 @@ void Model::loadObj(std::string_view filename)
                 }
                 return {vIdx, tIdx};
             };
-            
-            auto [v1i, t1i] = parseObjIndex(v1);
-            auto [v2i, t2i] = parseObjIndex(v2);
-            auto [v3i, t3i] = parseObjIndex(v3);
-            
-            face.vertexIndices = {static_cast<Uint16>(v1i), static_cast<Uint16>(v2i), static_cast<Uint16>(v3i)};
-            face.textureIndices = {static_cast<Uint16>(t1i), static_cast<Uint16>(t2i), static_cast<Uint16>(t3i)};
-            m_faces.push_back(std::move(face));
+
+            // Collect all face vertex strings (3 or 4)
+            std::vector<std::string> faceVerts;
+            std::string v;
+            while (ss >> v)
+                faceVerts.push_back(v);
+
+            if (faceVerts.size() < 3) continue; // malformed
+
+            // Emit triangle 0-1-2
+            auto [v0i, t0i] = parseObjIndex(faceVerts[0]);
+            auto [v1i, t1i] = parseObjIndex(faceVerts[1]);
+            auto [v2i, t2i] = parseObjIndex(faceVerts[2]);
+            m_faces.push_back({
+                {static_cast<Uint16>(v0i), static_cast<Uint16>(v1i), static_cast<Uint16>(v2i)},
+                {static_cast<Uint16>(t0i), static_cast<Uint16>(t1i), static_cast<Uint16>(t2i)}
+            });
+
+            // If quad, emit second triangle 0-2-3
+            if (faceVerts.size() >= 4) {
+                auto [v3i, t3i] = parseObjIndex(faceVerts[3]);
+                m_faces.push_back({
+                    {static_cast<Uint16>(v0i), static_cast<Uint16>(v2i), static_cast<Uint16>(v3i)},
+                    {static_cast<Uint16>(t0i), static_cast<Uint16>(t2i), static_cast<Uint16>(t3i)}
+                });
+            }
         } else {
             continue;
         }
@@ -737,6 +774,153 @@ MapDisplacedBufferedModel::~MapDisplacedBufferedModel()
 {
     release();
 }
+// --- MonsterBufferedModel ---
+
+MonsterBufferedModel::MonsterBufferedModel(SDL_GPUDevice* gpu, SDL_Window* window, std::unique_ptr<Model> model,
+    ShaderParameters vertex, ShaderParameters fragment, std::string_view textureFilename)
+    : BufferedModel(gpu, window, std::move(model), vertex, fragment, textureFilename)
+{
+    SDL_GPUBufferCreateInfo instanceBufferCreateInfo = {
+        .usage = SDL_GPU_BUFFERUSAGE_VERTEX,
+        .size = (Uint32)(s_maxMonsterInstances * sizeof(DisplacementColorInfo))
+    };
+    m_monsterInstanceBuffer = SDL_CreateGPUBuffer(m_GPUDevice, &instanceBufferCreateInfo);
+
+    SDL_GPUTransferBufferCreateInfo transferCreateInfo = {
+        .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+        .size = (Uint32)(s_maxMonsterInstances * sizeof(DisplacementColorInfo))
+    };
+    m_monsterTransferBuf = SDL_CreateGPUTransferBuffer(m_GPUDevice, &transferCreateInfo);
+}
+
+void MonsterBufferedModel::pushMonsterData(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
+{
+    const auto& monsterPositions = map.monsterPositions();
+    const auto& monsterTable = map.monsterTable();
+
+    // Map per-instance data: shift + color for each monster
+    DisplacementColorInfo* mapped = (DisplacementColorInfo*)SDL_MapGPUTransferBuffer(
+        m_GPUDevice, m_monsterTransferBuf, true);
+    for (auto idx = 0; const auto& [pos, monId] : monsterPositions) {
+        auto tableIt = monsterTable.find(monId);
+        if (tableIt == monsterTable.end())
+            continue;
+
+        const Monster& mon = tableIt->second;
+        glm::vec2 renderCoords2D = mapCoordToRender(pos);
+
+        mapped[idx].shiftX = renderCoords2D.x;
+        mapped[idx].shiftY = renderCoords2D.y;
+        mapped[idx].tileType = 999.0f;  // sentinel: don't sink, it's a monster
+        mapped[idx].padding = 0.0f;
+        // Color by attitude: 0=hostile(red), 1=neutral(yellow), 3=good_neutral(green), 4=friendly(blue), 5=marionette(purple)
+        switch (mon.att()) {
+            case 0: mapped[idx].color = glm::vec4(1.0f, 0.2f, 0.2f, 1.0f); break; // hostile — red
+            case 1: mapped[idx].color = glm::vec4(1.0f, 1.0f, 0.2f, 1.0f); break; // neutral — yellow
+            case 2: mapped[idx].color = glm::vec4(0.8f, 0.8f, 0.2f, 1.0f); break; // strict_neutral — olive
+            case 3: mapped[idx].color = glm::vec4(0.2f, 0.8f, 0.2f, 1.0f); break; // good_neutral — green
+            case 4: mapped[idx].color = glm::vec4(0.3f, 0.5f, 1.0f, 1.0f); break; // friendly — blue
+            case 5: mapped[idx].color = glm::vec4(0.7f, 0.3f, 0.9f, 1.0f); break; // marionette — purple
+            default: mapped[idx].color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f); break; // unknown — gray
+        }
+
+        if (++idx >= s_maxMonsterInstances)
+            break;
+    }
+    SDL_UnmapGPUTransferBuffer(m_GPUDevice, m_monsterTransferBuf);
+
+    Uint32 monsterCount = static_cast<Uint32>(std::min(
+        static_cast<size_t>(s_maxMonsterInstances), monsterPositions.size()));
+
+    // Update indirect draw command with correct instance count
+    SDL_GPUIndexedIndirectDrawCommand* drawTransfer = (SDL_GPUIndexedIndirectDrawCommand*)SDL_MapGPUTransferBuffer(
+        m_GPUDevice, m_drawTransferBuf, true);
+    drawTransfer[0] = (SDL_GPUIndexedIndirectDrawCommand) {
+        .num_indices = static_cast<Uint32>(3 * m_model->faces().size()),
+        .num_instances = monsterCount,
+        .first_index = 0,
+        .vertex_offset = 0,
+        .first_instance = 0
+    };
+    SDL_UnmapGPUTransferBuffer(m_GPUDevice, m_drawTransferBuf);
+
+    // Upload instance data + draw command
+    SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(cmdBuf);
+
+    SDL_GPUTransferBufferLocation instanceLocation = {
+        .transfer_buffer = m_monsterTransferBuf, .offset = 0
+    };
+    SDL_GPUBufferRegion instanceRegion = {
+        .buffer = m_monsterInstanceBuffer, .offset = 0,
+        .size = s_maxMonsterInstances * sizeof(DisplacementColorInfo)
+    };
+    SDL_UploadToGPUBuffer(copyPass, &instanceLocation, &instanceRegion, true);
+
+    SDL_GPUTransferBufferLocation drawLocation = {
+        .transfer_buffer = m_drawTransferBuf, .offset = 0
+    };
+    SDL_GPUBufferRegion drawRegion = {
+        .buffer = m_drawBuffer, .offset = 0, .size = m_drawBufSize
+    };
+    SDL_UploadToGPUBuffer(copyPass, &drawLocation, &drawRegion, true);
+
+    SDL_EndGPUCopyPass(copyPass);
+}
+
+void MonsterBufferedModel::draw(SDL_GPURenderPass* renderPass)
+{
+    SDL_BindGPUGraphicsPipeline(renderPass, m_pipeline);
+
+    // Slot 0: per-vertex position + normal + UV
+    SDL_GPUBufferBinding vertexBufferBinding = { .buffer = m_vertexBuffer, .offset = 0 };
+    SDL_BindGPUVertexBuffers(renderPass, 0, &vertexBufferBinding, 1);
+
+    // Slot 1: per-instance data (shift + color)
+    SDL_GPUBufferBinding instanceBufferBinding = { .buffer = m_monsterInstanceBuffer, .offset = 0 };
+    SDL_BindGPUVertexBuffers(renderPass, 1, &instanceBufferBinding, 1);
+
+    // Index buffer
+    SDL_GPUBufferBinding indexBufferBinding = { .buffer = m_indexBuffer, .offset = 0 };
+    SDL_BindGPUIndexBuffer(renderPass, &indexBufferBinding, SDL_GPU_INDEXELEMENTSIZE_16BIT);
+
+    // Texture sampler
+    if (m_texture && m_sampler) {
+        SDL_GPUTextureSamplerBinding texSamplerBinding = {
+            .texture = m_texture,
+            .sampler = m_sampler
+        };
+        SDL_BindGPUFragmentSamplers(renderPass, 0, &texSamplerBinding, 1);
+    }
+
+    SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer, 0, 1);
+}
+
+void MonsterBufferedModel::release()
+{
+    if (m_hasReleased)
+        return;
+
+    // Release our instance buffers first
+    if (m_monsterInstanceBuffer) {
+        SDL_ReleaseGPUBuffer(m_GPUDevice, m_monsterInstanceBuffer);
+        m_monsterInstanceBuffer = nullptr;
+    }
+    if (m_monsterTransferBuf) {
+        SDL_ReleaseGPUTransferBuffer(m_GPUDevice, m_monsterTransferBuf);
+        m_monsterTransferBuf = nullptr;
+    }
+
+    // Then release parent (pipeline, vertex, index, draw buffers)
+    BufferedModel::release();
+
+    m_hasReleased = true;
+}
+
+MonsterBufferedModel::~MonsterBufferedModel()
+{
+    release();
+}
+
 
 SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Window* window, ShaderParameters vertex, ShaderParameters fragment)
 {
