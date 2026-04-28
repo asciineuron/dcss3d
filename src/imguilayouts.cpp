@@ -329,14 +329,73 @@ void displayPlayer(const Player& player)
         }
     }
 
-    // --- Inventory ---
-    if (!d.inv.empty() && ImGui::CollapsingHeader("Inventory")) {
-        for (const auto& [slot, item] : d.inv) {
-            char letter = 'a' + static_cast<char>(slot);
-            ImGui::Text("%c - %s", letter, item.name.c_str());
-            if (item.count > 1)
-                ImGui::SameLine(); ImGui::Text(" x%d", item.count);
+    // --- Inventory grid (52 slots: a-z, A-Z, 4 rows of 13) ---
+    static bool showInvDetails = false;
+    ImGui::Separator();
+    ImGui::Text("Inventory:");
+
+    // Draw 4 rows x 13 columns grid
+    for (int row = 0; row < 4; ++row) {
+        for (int col = 0; col < 13; ++col) {
+            int slotIdx = row * 13 + col;  // 0..51
+
+            // Map to letter: 0-25 → a-z, 26-51 → A-Z
+            char letter;
+            if (slotIdx < 26)
+                letter = 'a' + static_cast<char>(slotIdx);
+            else
+                letter = 'A' + static_cast<char>(slotIdx - 26);
+
+            bool hasItem = d.inv.contains(slotIdx);
+            const InventoryItem* item = hasItem ? &d.inv.at(slotIdx) : nullptr;
+            bool isEmpty = !hasItem || item->name.empty();
+
+            // ImGui::PushID(slotIdx);
+            if (isEmpty) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+                ImGui::Text("%c", letter);
+                ImGui::PopStyleColor();
+            } else {
+                // Show occupied slot in gold/bright color
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.3f, 1.0f));
+                ImGui::Text("%c", letter);
+                ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("%c - %s", letter, item->name.c_str());
+                    if (item->count > 1)
+                        ImGui::Text("  x%d", item->count);
+                    ImGui::EndTooltip();
+                }
+            }
+            // ImGui::PopID();
+
+            if (col < 12)
+                ImGui::SameLine();
         }
+    }
+
+    // Button to toggle detailed inventory view
+    if (ImGui::Button(showInvDetails ? "Hide Details" : "Inventory Details")) {
+        showInvDetails = !showInvDetails;
+    }
+
+    if (showInvDetails) {
+        ImGui::BeginChild("InvDetailList", ImVec2(0, 150), ImGuiChildFlags_Borders);
+        if (d.inv.empty()) {
+            ImGui::TextDisabled("(inventory not yet received)");
+        } else {
+            for (const auto& [slot, item] : d.inv) {
+                if (item.name.empty()) continue;
+                char letter = static_cast<char>(slot < 26 ? 'a' + slot : 'A' + slot - 26);
+                ImGui::Text("%c - %s", letter, item.name.c_str());
+                if (item.count > 1) {
+                    ImGui::SameLine();
+                    ImGui::Text("x%d", item.count);
+                }
+            }
+        }
+        ImGui::EndChild();
     }
 
     // --- Camera debug (collapsible) ---

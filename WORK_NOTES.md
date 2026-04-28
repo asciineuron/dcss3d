@@ -1,35 +1,26 @@
 # Work Notes
 
-## Current Status: Player State & UI Complete
+## Current Status: Inventory Grid UI In Progress
 
-Player state handling (`"player"` messages), data structures, and imgui stats panel have been implemented on the `fix/player-state-ui` branch.
+Player state handling is committed. The inventory display has been replaced with a compact 52-slot grid + popup details view. Uncommitted changes in `src/imguilayouts.cpp`.
 
 ## Recent Work
 
-### Player State & UI (fix/player-state-ui)
+### Player State & UI (fix/player-state-ui, committed: 31f36cc)
 - Added `PlayerData` struct and `InventoryItem` struct in `PlayerState.hpp` mirroring the upstream JS `player` object field-for-field
-- Added `Player::handlePlayerMessage()` method that mirrors the JS `handle_player_message()` logic:
-  - Merges inventory items per slot (like `$.extend(player.inv[i], data.inv[i])`)
-  - Calculates `time_delta` from `m_lastTime` tracking
-  - Extends remaining fields onto `PlayerData` (partial updates supported via `setIf` lambda)
-  - Handles `pos` (nested object) and `status` (array) special cases
+- Added `Player::handlePlayerMessage()` method that mirrors the JS `handle_player_message()` logic
 - Registered `"player"` message type in handler config alongside existing `"map"`
 - Rewrote `displayPlayer()` imgui window to show actual game stats:
-  - Player identity (name, species, title, god)
-  - HP/MP bars with color coding (green > 50%, yellow > 25%, red ≤ 25%)
-  - Defenses (AC, EV, SH), XL/progress, gold
-  - Location: place:depth, position coordinates
-  - Collapsible Attributes section (Str/Int/Dex, piety, penance)
-  - Status effects list
-  - Collapsible Inventory section
+  - Player identity, HP/MP bars, defenses, location, attributes, status effects
   - Collapsible Camera debug section
 - Builds cleanly, all 83 existing assertions pass
 
-**Key Files:**
-- `src/PlayerState.hpp`: `InventoryItem`, `PlayerData` structs; `Player::data()` accessor; `handlePlayerMessage()` declaration
-- `src/PlayerState.cpp`: `handlePlayerMessage()` implementation with inventory merge, time_delta calc, field extension
-- `src/imguilayouts.cpp`: Updated `displayPlayer()` with HP/MP bars, stats, attributes, inventory, status effects
-- `src/main.cpp`: Added `"player"` to handlerConfig
+### Inventory Grid (uncommitted)
+- Replaced collapsible inventory list with a **compact 52-slot grid** (4 rows × 13 columns: a-m, n-z, A-M, N-Z)
+  - Empty slots: dim grey letter
+  - Occupied slots: gold/bright letter with hover tooltip showing item name + count
+- Added **"Inventory Details" toggle button** that opens a bordered, scrollable child window with the full item list
+- Removed unused `glm/gtx/string_cast.hpp` include
 
 Monster data parsing and storage has been implemented on the `feature/monster-data` branch. The `GameMap` class now stores both tile data (`m_map`) and monster data (`m_monsters` + `m_monsterTable`), following the same pattern as the crawl webtiles JavaScript client's `merge_monster()` logic.
 
