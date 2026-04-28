@@ -258,8 +258,8 @@ std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& 
     float x_disp = gameTime.dt() * dx;
     float y_disp = gameTime.dt() * dy;
 
-    spdlog::debug("velocity: velX={:.3f}, velY={:.3f}, theta={:.3f} -> dx={:.3f}, dy={:.3f}",
-        m_velX, m_velY, m_camera.theta, dx, dy);
+    // spdlog::debug("velocity: velX={:.3f}, velY={:.3f}, theta={:.3f} -> dx={:.3f}, dy={:.3f}",
+    //     m_velX, m_velY, m_camera.theta, dx, dy);
 
     // this or flip y sign?
     glm::vec2 testPosition = { m_camera.pos[0] + x_disp, m_camera.pos[2] + y_disp };
@@ -267,8 +267,8 @@ std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& 
     // Check if would collide BEFORE updating position
     bool wouldCollideNow = gameMap.wouldCollide(testPosition);
 
-    spdlog::debug("testPosition: ({:.3f}, {:.3f}), camera: ({:.3f}, {:.3f}), collide: {}",
-        testPosition[0], testPosition[1], m_camera.pos[0], m_camera.pos[2], wouldCollideNow);
+    // spdlog::debug("testPosition: ({:.3f}, {:.3f}), camera: ({:.3f}, {:.3f}), collide: {}",
+    //     testPosition[0], testPosition[1], m_camera.pos[0], m_camera.pos[2], wouldCollideNow);
 
     // Store old position for move detection
     glm::vec2 oldPosition = { m_camera.pos[0], m_camera.pos[2] };
@@ -277,7 +277,7 @@ std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& 
     if (!wouldCollideNow) {
         m_camera.pos[0] = testPosition[0];
         m_camera.pos[2] = testPosition[1];
-        spdlog::debug("position updated to ({:.3f}, {:.3f})", m_camera.pos[0], m_camera.pos[2]);
+        // spdlog::debug("position updated to ({:.3f}, {:.3f})", m_camera.pos[0], m_camera.pos[2]);
     } else {
         spdlog::debug("collision prevented, position unchanged");
         // No position change since blocked by wall, no turn needed
@@ -289,7 +289,7 @@ std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& 
     float x_diff = std::floor(m_camera.pos[0]) - std::floor(oldPosition[0]);
     float y_diff = std::floor(m_camera.pos[2]) - std::floor(oldPosition[1]);
 
-    spdlog::debug("move detection: x_diff={:.3f}, y_diff={:.3f}", x_diff, y_diff);
+    // spdlog::debug("move detection: x_diff={:.3f}, y_diff={:.3f}", x_diff, y_diff);
 
     if (x_diff > 0.5f)
         moveDir = (Direction)(moveDir | East);

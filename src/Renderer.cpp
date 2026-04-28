@@ -128,13 +128,8 @@ Renderer::Renderer()
         ShaderParameters { std::string_view("lit.frag"), 1, 1, 0, 0 },
         std::string_view("resources/cube1_diffuse.png"));
 
-    // Monster placeholder model (monkey) — shared geometry for all monster types (MVP)
-    // Uses solid.frag (no texture) with per-instance attitude-based color.
-    m_monsterModel = std::make_unique<MonsterBufferedModel>(
-        m_GPUDevice, m_window, std::make_unique<Model>("monkey.obj"),
-        ShaderParameters { std::string_view("position_color_shifted.vert"), 0, 1, 0, 0 },
-        ShaderParameters { std::string_view("solid.frag"), 0, 1, 0, 0 });
-        // No texture — solid color only
+    // Monster models are lazily created per OBJ file via getOrCreateMonsterModel().
+    // No upfront creation — the model cache is populated on first monster data push.
 
     // imgui:
     // Setup Dear ImGui context
@@ -233,9 +228,9 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
 
         m_mapCubeModel->draw(scenePass);
 
-        // Draw monsters on top (depth-tested, same pass)
-        if (!map.monsterPositions().empty()) {
-            m_monsterModel->draw(scenePass);
+        // Draw monsters on top (depth-tested, same pass) — one draw per model type
+        for (auto& [file, model] : m_monsterModelCache) {
+            model->draw(scenePass);
         }
 
         SDL_EndGPURenderPass(scenePass);
@@ -271,7 +266,28 @@ void Renderer::pushMapToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
 
 void Renderer::pushMonsterToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
 {
-    m_monsterModel->pushMonsterData(map, cmdBuf);
+    const auto& monsterPositions = map.monsterPositions();
+    const auto& monsterTable = map.monsterTable();
+
+    // Group monsters by visual type (btype if polymorph/derived, otherwise type).
+    // This ensures e.g. a gnoll zombie renders as a gnoll, not a generic zombie.
+    std::unordered_map<std::string, std::vector<std::pair<Pos2<int>, const Monster*>>> grouped;
+
+    for (const auto& [pos, monId] : monsterPositions) {
+        auto tableIt = monsterTable.find(monId);
+        if (tableIt == monsterTable.end())
+            continue;
+
+        const Monster& mon = tableIt->second;
+        const std::string& modelFile = getModelFileForType(mon);
+        grouped[modelFile].push_back({pos, &mon});
+    }
+
+    // Push each group to its corresponding model
+    for (auto& [modelFile, monsters] : grouped) {
+        MonsterBufferedModel* model = getOrCreateMonsterModel(modelFile);
+        model->pushMonsterData(monsters, cmdBuf);
+    }
 }
 
 Renderer::~Renderer()
@@ -279,6 +295,12 @@ Renderer::~Renderer()
     // shared ptrs automatically deleted with proper funcs
     // TODO causes segfault, maybe since child Model class frees afterwards?
     m_mapCubeModel->release();
+
+    // Release all cached monster models
+    for (auto& [file, model] : m_monsterModelCache) {
+        model->release();
+    }
+    m_monsterModelCache.clear();
 
     releaseDepthTexture();
 
@@ -347,24 +369,42 @@ void Model::loadObj(std::string_view filename)
             glm::vec2 uv;
             ss >> uv.x >> uv.y;
             m_uvs.push_back(std::move(uv));
+        } else if (type == "vn") {
+            glm::vec3 normal;
+            ss >> normal.x >> normal.y >> normal.z;
+            m_rawNormals.push_back(std::move(normal));
         } else if (type == "f") {
             // Handle OBJ face formats: v, v/t, v/t/n, v//n
             // Supports both triangles (3 verts) and quads (4 verts).
             // Quads are triangulated into two triangles: (0,1,2) and (0,2,3).
-            
-            // Parse vertex/texture indices from format like "5/1" or "5/1/1"
-            auto parseObjIndex = [](const std::string& s) -> std::pair<int, int> {
-                size_t slash = s.find('/');
-                int vIdx = std::stoi(s.substr(0, slash)) - 1; // 0-based
+
+            struct ObjIndex {
+                int vIdx;   // vertex index, 0-based
+                int tIdx;   // texture index, 0-based (0 = absent)
+                int nIdx;   // normal index, 0-based (0 = absent)
+            };
+
+            // Parse vertex/texture/normal indices from formats like "5", "5/1", "5/1/1", "5//1"
+            // vIdx and tIdx are 0-based; nIdx is kept 1-based so 0 = absent sentinel.
+            auto parseObjIndex = [](const std::string& s) -> ObjIndex {
+                size_t slash1 = s.find('/');
+                int vIdx = std::stoi(s.substr(0, slash1)) - 1; // 0-based
                 int tIdx = 0;
-                if (slash != std::string::npos) {
-                    size_t secondSlash = s.find('/', slash + 1);
-                    std::string texPart = s.substr(slash + 1, secondSlash - slash - 1);
+                int nIdx = 0;  // 0 = absent, 1+ = OBJ normal index
+                if (slash1 != std::string::npos) {
+                    size_t slash2 = s.find('/', slash1 + 1);
+                    std::string texPart = s.substr(slash1 + 1, slash2 - slash1 - 1);
                     if (!texPart.empty()) {
-                        tIdx = std::stoi(texPart) - 1; // 0-based
+                        tIdx = std::stoi(texPart) - 1;
+                    }
+                    if (slash2 != std::string::npos) {
+                        std::string normPart = s.substr(slash2 + 1);
+                        if (!normPart.empty()) {
+                            nIdx = std::stoi(normPart); // 1-based, kept as-is
+                        }
                     }
                 }
-                return {vIdx, tIdx};
+                return {vIdx, tIdx, nIdx};
             };
 
             // Collect all face vertex strings (3 or 4)
@@ -376,20 +416,22 @@ void Model::loadObj(std::string_view filename)
             if (faceVerts.size() < 3) continue; // malformed
 
             // Emit triangle 0-1-2
-            auto [v0i, t0i] = parseObjIndex(faceVerts[0]);
-            auto [v1i, t1i] = parseObjIndex(faceVerts[1]);
-            auto [v2i, t2i] = parseObjIndex(faceVerts[2]);
+            auto i0 = parseObjIndex(faceVerts[0]);
+            auto i1 = parseObjIndex(faceVerts[1]);
+            auto i2 = parseObjIndex(faceVerts[2]);
             m_faces.push_back({
-                {static_cast<Uint16>(v0i), static_cast<Uint16>(v1i), static_cast<Uint16>(v2i)},
-                {static_cast<Uint16>(t0i), static_cast<Uint16>(t1i), static_cast<Uint16>(t2i)}
+                {static_cast<Uint16>(i0.vIdx), static_cast<Uint16>(i1.vIdx), static_cast<Uint16>(i2.vIdx)},
+                {static_cast<Uint16>(i0.tIdx), static_cast<Uint16>(i1.tIdx), static_cast<Uint16>(i2.tIdx)},
+                {static_cast<Uint16>(i0.nIdx), static_cast<Uint16>(i1.nIdx), static_cast<Uint16>(i2.nIdx)}
             });
 
             // If quad, emit second triangle 0-2-3
             if (faceVerts.size() >= 4) {
-                auto [v3i, t3i] = parseObjIndex(faceVerts[3]);
+                auto i3 = parseObjIndex(faceVerts[3]);
                 m_faces.push_back({
-                    {static_cast<Uint16>(v0i), static_cast<Uint16>(v2i), static_cast<Uint16>(v3i)},
-                    {static_cast<Uint16>(t0i), static_cast<Uint16>(t2i), static_cast<Uint16>(t3i)}
+                    {static_cast<Uint16>(i0.vIdx), static_cast<Uint16>(i2.vIdx), static_cast<Uint16>(i3.vIdx)},
+                    {static_cast<Uint16>(i0.tIdx), static_cast<Uint16>(i2.tIdx), static_cast<Uint16>(i3.tIdx)},
+                    {static_cast<Uint16>(i0.nIdx), static_cast<Uint16>(i2.nIdx), static_cast<Uint16>(i3.nIdx)}
                 });
             }
         } else {
@@ -397,10 +439,11 @@ void Model::loadObj(std::string_view filename)
         }
     }
 
-    // Compute per-face flat normals and expand indexed geometry to non-indexed.
-    // Each triangle gets its own 3 vertices with the face's normal.
-    // This duplicates shared vertices (e.g., cube corners appear 3 times) but
-    // gives correct per-face flat shading for lighting.
+    // Expand indexed geometry to non-indexed, with per-vertex normals.
+    // If the OBJ has vertex normals (vn), use them for smooth shading.
+    // Otherwise compute flat per-face normals (cross product).
+    const bool hasVertexNormals = !m_rawNormals.empty();
+
     std::vector<glm::vec3> expandedVertices;
     std::vector<glm::vec3> expandedNormals;
     std::vector<glm::vec2> expandedUVs;  // Store expanded UVs
@@ -408,58 +451,70 @@ void Model::loadObj(std::string_view filename)
 
     for (size_t f = 0; f < m_faces.size(); ++f) {
         const auto& face = m_faces[f];
-        // Compute face normal from first 3 vertices (cross product of edges)
         glm::vec3 v0 = m_vertices[face.vertexIndices[0]];
         glm::vec3 v1 = m_vertices[face.vertexIndices[1]];
         glm::vec3 v2 = m_vertices[face.vertexIndices[2]];
-        glm::vec3 edge1 = v1 - v0;
-        glm::vec3 edge2 = v2 - v0;
-        glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));
+
+        // Per-corner normals: use OBJ vertex normals if present, else compute flat face normal
+        glm::vec3 n0, n1, n2;
+        if (hasVertexNormals
+            && face.normalIndices[0] > 0 && face.normalIndices[0] <= m_rawNormals.size()
+            && face.normalIndices[1] > 0 && face.normalIndices[1] <= m_rawNormals.size()
+            && face.normalIndices[2] > 0 && face.normalIndices[2] <= m_rawNormals.size()) {
+            n0 = m_rawNormals[face.normalIndices[0] - 1];
+            n1 = m_rawNormals[face.normalIndices[1] - 1];
+            n2 = m_rawNormals[face.normalIndices[2] - 1];
+        } else {
+            // Fallback: compute face normal from cross product of edges
+            glm::vec3 edge1 = v1 - v0;
+            glm::vec3 edge2 = v2 - v0;
+            glm::vec3 faceNormal = glm::normalize(glm::cross(edge1, edge2));
+            n0 = n1 = n2 = faceNormal;
+        }
 
         // Emit 3 vertices with position, normal, and UV for this triangle
         uint32_t baseIdx = static_cast<uint32_t>(expandedVertices.size());
-        
+
         // Vertex 0
         expandedVertices.push_back(v0);
-        expandedNormals.push_back(normal);
-        // UV: use texture index if valid, otherwise generate proper cube UV
+        expandedNormals.push_back(n0);
         if (face.textureIndices[0] < m_uvs.size()) {
             expandedUVs.push_back(m_uvs[face.textureIndices[0]]);
         } else {
-            // Fallback: generate cube UV based on face normal
-            if (std::abs(normal.z) > 0.9f) {
+            // Fallback: generate cube UV based on normal (use n0 for axis decision)
+            if (std::abs(n0.z) > 0.9f) {
                 expandedUVs.push_back(glm::vec2(v0.x + 0.5f, v0.y + 0.5f));
-            } else if (std::abs(normal.x) > 0.9f) {
+            } else if (std::abs(n0.x) > 0.9f) {
                 expandedUVs.push_back(glm::vec2(v0.z + 0.5f, v0.y + 0.5f));
             } else {
                 expandedUVs.push_back(glm::vec2(v0.x + 0.5f, v0.z + 0.5f));
             }
         }
-        
+
         // Vertex 1
         expandedVertices.push_back(v1);
-        expandedNormals.push_back(normal);
+        expandedNormals.push_back(n1);
         if (face.textureIndices[1] < m_uvs.size()) {
             expandedUVs.push_back(m_uvs[face.textureIndices[1]]);
         } else {
-            if (std::abs(normal.z) > 0.9f) {
+            if (std::abs(n1.z) > 0.9f) {
                 expandedUVs.push_back(glm::vec2(v1.x + 0.5f, v1.y + 0.5f));
-            } else if (std::abs(normal.x) > 0.9f) {
+            } else if (std::abs(n1.x) > 0.9f) {
                 expandedUVs.push_back(glm::vec2(v1.z + 0.5f, v1.y + 0.5f));
             } else {
                 expandedUVs.push_back(glm::vec2(v1.x + 0.5f, v1.z + 0.5f));
             }
         }
-        
+
         // Vertex 2
         expandedVertices.push_back(v2);
-        expandedNormals.push_back(normal);
+        expandedNormals.push_back(n2);
         if (face.textureIndices[2] < m_uvs.size()) {
             expandedUVs.push_back(m_uvs[face.textureIndices[2]]);
         } else {
-            if (std::abs(normal.z) > 0.9f) {
+            if (std::abs(n2.z) > 0.9f) {
                 expandedUVs.push_back(glm::vec2(v2.x + 0.5f, v2.y + 0.5f));
-            } else if (std::abs(normal.x) > 0.9f) {
+            } else if (std::abs(n2.x) > 0.9f) {
                 expandedUVs.push_back(glm::vec2(v2.z + 0.5f, v2.y + 0.5f));
             } else {
                 expandedUVs.push_back(glm::vec2(v2.x + 0.5f, v2.z + 0.5f));
@@ -776,6 +831,52 @@ MapDisplacedBufferedModel::~MapDisplacedBufferedModel()
 {
     release();
 }
+// --- Monster Model Cache ----------------------------------------------------
+
+const std::string& Renderer::getModelFileForType(const Monster& mon)
+{
+    static const std::string s_defaultModel = "monkey.obj";
+
+    // Name → OBJ model file mapping (version-agnostic, always available).
+    // Add entries here as new models become available.
+    static const std::unordered_map<std::string, std::string> s_nameModelMap = {
+        { "bat",       "icosphere.obj" },
+        { "fire bat",  "icosphere.obj" },
+        // Examples for future models:
+        // { "rat",     "rat.obj"     },
+        // { "goblin",  "goblin.obj"  },
+        // { "kobold",  "kobold.obj"  },
+        // { "orc",     "orc.obj"     },
+    };
+
+    spdlog::debug("getModelFileForType: name='{}' type={} btype={}",
+                  mon.name(), mon.type(), mon.btype());
+
+    auto it = s_nameModelMap.find(mon.name());
+    if (it != s_nameModelMap.end())
+        return it->second;
+    return s_defaultModel;
+}
+
+MonsterBufferedModel* Renderer::getOrCreateMonsterModel(const std::string& modelFile)
+{
+    auto it = m_monsterModelCache.find(modelFile);
+    if (it != m_monsterModelCache.end())
+        return it->second.get();
+
+    // Lazily create the model — same shaders as the original MVP monster model.
+    // Uses position_color_shifted.vert (with sentinel 999 hack) and solid.frag (no texture).
+    auto model = std::make_unique<MonsterBufferedModel>(
+        m_GPUDevice, m_window, std::make_unique<Model>(modelFile),
+        ShaderParameters { std::string_view("position_color_shifted.vert"), 0, 1, 0, 0 },
+        ShaderParameters { std::string_view("solid.frag"), 0, 1, 0, 0 });
+
+    MonsterBufferedModel* ptr = model.get();
+    m_monsterModelCache[modelFile] = std::move(model);
+    spdlog::info("Created monster model from '{}'", modelFile);
+    return ptr;
+}
+
 // --- MonsterBufferedModel ---
 
 MonsterBufferedModel::MonsterBufferedModel(SDL_GPUDevice* gpu, SDL_Window* window, std::unique_ptr<Model> model,
@@ -795,20 +896,20 @@ MonsterBufferedModel::MonsterBufferedModel(SDL_GPUDevice* gpu, SDL_Window* windo
     m_monsterTransferBuf = SDL_CreateGPUTransferBuffer(m_GPUDevice, &transferCreateInfo);
 }
 
-void MonsterBufferedModel::pushMonsterData(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
+void MonsterBufferedModel::pushMonsterData(
+    const std::vector<std::pair<Pos2<int>, const Monster*>>& monsters,
+    SDL_GPUCommandBuffer* cmdBuf)
 {
-    const auto& monsterPositions = map.monsterPositions();
-    const auto& monsterTable = map.monsterTable();
-
-    // Map per-instance data: shift + color for each monster
+    // Map per-instance data: shift + color for each monster in the filtered list
     DisplacementColorInfo* mapped = (DisplacementColorInfo*)SDL_MapGPUTransferBuffer(
         m_GPUDevice, m_monsterTransferBuf, true);
-    for (auto idx = 0; const auto& [pos, monId] : monsterPositions) {
-        auto tableIt = monsterTable.find(monId);
-        if (tableIt == monsterTable.end())
-            continue;
 
-        const Monster& mon = tableIt->second;
+    Uint32 idx = 0;
+    for (const auto& [pos, monPtr] : monsters) {
+        if (!monPtr || idx >= s_maxMonsterInstances)
+            break;
+
+        const Monster& mon = *monPtr;
         glm::vec2 renderCoords2D = mapCoordToRender(pos);
 
         mapped[idx].shiftX = renderCoords2D.x;
@@ -826,13 +927,11 @@ void MonsterBufferedModel::pushMonsterData(const GameMap& map, SDL_GPUCommandBuf
             default: mapped[idx].color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f); break; // unknown — gray
         }
 
-        if (++idx >= s_maxMonsterInstances)
-            break;
+        ++idx;
     }
     SDL_UnmapGPUTransferBuffer(m_GPUDevice, m_monsterTransferBuf);
 
-    Uint32 monsterCount = static_cast<Uint32>(std::min(
-        static_cast<size_t>(s_maxMonsterInstances), monsterPositions.size()));
+    Uint32 monsterCount = idx;
 
     // Update indirect draw command with correct instance count
     SDL_GPUIndexedIndirectDrawCommand* drawTransfer = (SDL_GPUIndexedIndirectDrawCommand*)SDL_MapGPUTransferBuffer(
