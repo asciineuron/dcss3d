@@ -4,6 +4,52 @@
 #include <iostream>
 #include <spdlog/spdlog.h>
 #include <string>
+#include <unordered_set>
+
+// --- Monster ----------------------------------------------------------------
+
+void Monster::merge(const json& monJson)
+{
+    // Always extract id if present (required for identity)
+    if (auto it = monJson.find("id"); it != monJson.end())
+        m_id = it->get<uint32_t>();
+
+    if (auto it = monJson.find("type"); it != monJson.end())
+        m_type = it->get<int>();
+
+    if (auto it = monJson.find("att"); it != monJson.end())
+        m_att = it->get<int>();
+
+    if (auto it = monJson.find("threat"); it != monJson.end())
+        m_threat = it->get<int>();
+
+    if (auto it = monJson.find("name"); it != monJson.end())
+        m_name = it->get<std::string>();
+
+    if (auto it = monJson.find("plural"); it != monJson.end())
+        m_plural = it->get<std::string>();
+
+    if (auto it = monJson.find("btype"); it != monJson.end()) {
+        m_btype = it->get<int>();
+        m_hasBtype = true;
+    }
+
+    if (auto it = monJson.find("clientid"); it != monJson.end()) {
+        m_clientid = it->get<uint32_t>();
+        m_hasClientid = true;
+    }
+
+    // typedata sub-object
+    if (auto td = monJson.find("typedata"); td != monJson.end() && td->is_object()) {
+        if (auto avghp = td->find("avghp"); avghp != td->end())
+            m_typedataAvghp = avghp->get<int>();
+        if (auto noExp = td->find("no_exp"); noExp != td->end())
+            m_typedataNoExp = noExp->get<bool>();
+        m_hasTypedata = true;
+    }
+}
+
+// --- GameMap ----------------------------------------------------------------
 
 glm::vec4 mapTypeToColor(MapType type)
 {
@@ -66,11 +112,20 @@ void GameMap::shift(Direction moveDir)
     if (dx == 0 && dy == 0)
         return;
 
+    // Shift tile map
     MapData nextMap;
     for (const auto& [pos, tile] : m_map) {
         nextMap[{pos.x + dx, pos.y + dy}] = tile;
     }
     m_map = std::move(nextMap);
+
+    // Shift monster positions (monster table is position-independent, no change needed)
+    MonsterPosMap nextMonsters;
+    for (const auto& [pos, id] : m_monsters) {
+        nextMonsters[{pos.x + dx, pos.y + dy}] = id;
+    }
+    m_monsters = std::move(nextMonsters);
+
     updateBounds();
     m_didRender = false;
 }
@@ -105,8 +160,6 @@ operator<<(std::ostream& os, const GameMap& gameMap)
 
 std::string GameMap::asciiView() const
 {
-    // TODO: natively store the map this way instead? or provide a view, no need to loop over so many times each frame...
-
     // algorithm to loop over, find min,max x,y => construct rectangle, fill relevant entry with number, appears more graphical
     int x_min, x_max, y_min, y_max;
     x_min = x_max = y_min = y_max = 0;
@@ -170,10 +223,46 @@ std::optional<MapType> GameMap::getTileAt(int x, int y) const
     return std::nullopt;
 }
 
+std::optional<std::reference_wrapper<const Monster>> GameMap::getMonsterAt(int x, int y) const
+{
+    auto posIt = m_monsters.find({ x, y });
+    if (posIt == m_monsters.end())
+        return std::nullopt;
+
+    auto tableIt = m_monsterTable.find(posIt->second);
+    if (tableIt == m_monsterTable.end())
+        return std::nullopt;
+
+    return std::cref(tableIt->second);
+}
+
+void GameMap::cleanMonsterTable()
+{
+    // Build a set of all referenced monster IDs from m_monsters
+    std::unordered_set<uint32_t> referencedIds;
+    for (const auto& [pos, id] : m_monsters) {
+        referencedIds.insert(id);
+    }
+
+    // Remove any table entry not present in the set
+    for (auto it = m_monsterTable.begin(); it != m_monsterTable.end(); ) {
+        if (!referencedIds.contains(it->first)) {
+            spdlog::debug("Cleaning unreferenced monster id={}", it->first);
+            it = m_monsterTable.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void GameMap::updateMap(const json& message)
 {
-    if (message.contains("clear") && message["clear"])
+    if (message.contains("clear") && message["clear"]) {
         m_map.clear();
+        m_monsters.clear();
+        m_monsterTable.clear();
+    }
+
     int curX;
     Pos2<int> pos;
     MapType type;
@@ -190,11 +279,77 @@ void GameMap::updateMap(const json& message)
             type = mapTypeFromMF(mf.value());
 
         m_map[pos] = Tile(type);
+
+        // --- Monster handling ---
+        auto monIt = cell.find("mon");
+        if (monIt == cell.end()) {
+            // No "mon" field at all — monster state unchanged, leave as-is
+            continue;
+        }
+
+        if (monIt->is_null()) {
+            // "mon": null — monster removed from this cell
+            m_monsters.erase(pos);
+            continue;
+        }
+
+        // "mon" is an object — partial or full update
+        const json& monJson = *monIt;
+        uint32_t monId = 0;
+        if (auto idIt = monJson.find("id"); idIt != monJson.end()) {
+            monId = idIt->get<uint32_t>();
+        }
+
+        if (monId == 0) {
+            // Monster without an ID — nothing to track
+            spdlog::debug("Monster at ({},{}) has no id, skipping", pos.x, pos.y);
+            continue;
+        }
+
+        // Check if we already have a monster at this position
+        // (the JS client uses old_mon to seed new entries; we do the lookup from m_monsters)
+        uint32_t oldMonId = 0;
+        if (auto oldPosIt = m_monsters.find(pos); oldPosIt != m_monsters.end()) {
+            oldMonId = oldPosIt->second;
+        }
+
+        // Look up existing monster in global table by the incoming ID
+        auto tableIt = m_monsterTable.find(monId);
+        if (tableIt == m_monsterTable.end()) {
+            // New monster ID — create entry
+            // If there was a previous monster at this cell with a different ID,
+            // use its data as fallback for any missing fields (mirrors JS merge_objects(old_mon, mon))
+            Monster newMon;
+            if (oldMonId != 0 && oldMonId != monId) {
+                auto oldTableIt = m_monsterTable.find(oldMonId);
+                if (oldTableIt != m_monsterTable.end()) {
+                    newMon = oldTableIt->second; // copy old data as fallback
+                }
+            }
+            newMon.merge(monJson); // overwrite with incoming fields
+            m_monsterTable[monId] = newMon;
+        } else {
+            // Existing monster — merge partial update
+            tableIt->second.merge(monJson);
+        }
+
+        // Remove any old position that references the same monster ID
+        // (a monster can only be at one position at a time)
+        for (auto it = m_monsters.begin(); it != m_monsters.end(); ) {
+            if (it->second == monId && !(it->first == pos)) {
+                it = m_monsters.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        // Update position → monster ID mapping
+        m_monsters[pos] = monId;
     }
+
+    // Clean up IDs no longer referenced by any cell
+    cleanMonsterTable();
 
     updateBounds();
     m_didRender = false;
-
-    // std::cerr << "new map data: \n"
-    //           << (*this) << std::endl;
 }

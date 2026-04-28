@@ -5,6 +5,9 @@
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
 #include <optional>
+#include <string>
+#include <cstdint>
+#include <unordered_set>
 
 enum class MapType {
     Wall,
@@ -26,6 +29,50 @@ public:
 
 private:
     MapType m_type;
+};
+
+// Represents a monster/creature on the map, storing parsed JSON data from the server.
+// Mirrors the `mon` object in webtiles map cell updates (see MONSTER_DATA_API.md).
+class Monster {
+public:
+    Monster() = default;
+
+    // Merge in a partial update from the server JSON `mon` object.
+    // Only overwrites fields that are present in the incoming JSON.
+    // If this is a brand-new monster and fields are missing, sensible defaults are used.
+    void merge(const json& monJson);
+
+    // -- Accessors --
+    uint32_t id() const { return m_id; }
+    void setId(uint32_t id) { m_id = id; }
+
+    int type() const { return m_type; }
+    int att() const { return m_att; }
+    int threat() const { return m_threat; }
+    const std::string& name() const { return m_name; }
+    const std::string& plural() const { return m_plural; }
+    int btype() const { return m_btype; }
+    bool hasBtype() const { return m_hasBtype; }
+    int typedataAvghp() const { return m_typedataAvghp; }
+    bool typedataNoExp() const { return m_typedataNoExp; }
+    bool hasTypedata() const { return m_hasTypedata; }
+    uint32_t clientid() const { return m_clientid; }
+    bool hasClientid() const { return m_hasClientid; }
+
+private:
+    uint32_t m_id {};
+    int m_type {};
+    int m_att {};         // mon_attitude_type (0=hostile, 1=neutral, 2=strict_neutral, 3=good_neutral, 4=friendly, 5=marionette)
+    int m_threat {};      // mon_threat_level_type (0=trivial, 1=easy, 2=tough, 3=nasty, 4=undefined)
+    std::string m_name;
+    std::string m_plural;
+    int m_btype {};
+    bool m_hasBtype {};
+    int m_typedataAvghp {};
+    bool m_typedataNoExp {};
+    bool m_hasTypedata {};
+    uint32_t m_clientid {};
+    bool m_hasClientid {};
 };
 
 template <typename T>
@@ -58,6 +105,12 @@ public:
     // TODO: could sort by Pos2 distance and use std::map, near-to-far
     using MapData = std::unordered_map<Pos2<int>, Tile>;
 
+    // Monster storage:
+    //   m_monsters:    position → monster ID (which monster is at which cell)
+    //   m_monsterTable: monster ID → full Monster data (the global table)
+    using MonsterPosMap = std::unordered_map<Pos2<int>, uint32_t>;
+    using MonsterTable = std::unordered_map<uint32_t, Monster>;
+
     void handleMessage(const json& message) override;
 
     void shift(Direction moveDir);
@@ -66,8 +119,13 @@ public:
 
     const MapData& map() const { return m_map; }
 
+    // Monster accessors
+    const MonsterPosMap& monsterPositions() const { return m_monsters; }
+    const MonsterTable& monsterTable() const { return m_monsterTable; }
+    std::optional<std::reference_wrapper<const Monster>> getMonsterAt(int x, int y) const;
+
     // check if rendered since last handleMessage() potential update:
-    const bool didRender() const { return m_didRender; };
+    bool didRender() const { return m_didRender; };
     void setDidRender(bool didRender) { m_didRender = didRender; };
 
     struct Bounds { int x_min, x_max, y_min, y_max; };
@@ -79,10 +137,13 @@ public:
 
 private:
     MapData m_map;
+    MonsterPosMap m_monsters;       // position → monster ID
+    MonsterTable m_monsterTable;     // monster ID → Monster data
     bool m_didRender {};
     Bounds m_bounds { 0, 0, 0, 0 };
     void updateMap(const json& message); // call from handleMessage()
     void updateBounds();
+    void cleanMonsterTable();        // remove IDs not referenced by any cell in m_monsters
 };
 
 glm::vec4 mapTypeToColor(MapType type);

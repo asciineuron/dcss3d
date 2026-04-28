@@ -287,9 +287,43 @@ void displayMap(const GameMap& map)
                 glm::vec4 color = mapTypeToColor(type);
                 ImGui::TextColored(ImVec4(color.r, color.g, color.b, color.a), "%d", static_cast<int>(type));
             }
+
+            // Monster marker: flashing '*' if a monster is on this cell
+            auto monOpt = map.getMonsterAt(x, y);
+            if (monOpt) {
+                ImGui::SameLine();
+                float monAlpha = (sinf(ImGui::GetTime() * 8.0f) * 0.5f) + 0.5f;
+                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, monAlpha), "*");
+            }
+
             ImGui::SameLine();
         }
         ImGui::NewLine();
+    }
+
+    // Monster list below the map grid
+    ImGui::Spacing();
+    ImGui::SeparatorText("Monsters on map:");
+    const auto& monsterTable = map.monsterTable();
+    const auto& monsterPositions = map.monsterPositions();
+
+    if (monsterPositions.empty()) {
+        ImGui::TextDisabled("(no monsters)");
+    } else {
+        // Show each monster: position, name, type, attitude, threat
+        for (const auto& [pos, monId] : monsterPositions) {
+            auto tableIt = monsterTable.find(monId);
+            if (tableIt == monsterTable.end())
+                continue;
+            const Monster& mon = tableIt->second;
+
+            ImGui::Text("(%d,%d) [id=%u]", pos.x, pos.y, monId);
+            ImGui::SameLine();
+            if (!mon.name().empty())
+                ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), " %s", mon.name().c_str());
+            ImGui::SameLine();
+            ImGui::Text(" type=%d att=%d threat=%d", mon.type(), mon.att(), mon.threat());
+        }
     }
 
     ImGui::End();

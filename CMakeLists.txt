@@ -202,10 +202,18 @@ target_sources(dcss3d_tests PRIVATE
     tests/main.cpp
     tests/test_game_map.cpp
     tests/test_player_state.cpp
+    src/GameMap.cpp
+    src/Turn.cpp
+    src/MessageQueue.cpp
+    src/debug.cpp
 )
 
 target_link_libraries(dcss3d_tests PRIVATE
     Catch2::Catch2WithMain
+    SDL3::SDL3
+    nlohmann_json::nlohmann_json
+    spdlog::spdlog
+    glm::glm
 )
 
 target_include_directories(dcss3d_tests PRIVATE ${PROJECT_SOURCE_DIR}/src)
