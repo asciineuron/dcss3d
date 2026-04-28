@@ -122,6 +122,7 @@ endfunction()
 
 set(SLANG_SHADERS
     ${PROJECT_SOURCE_DIR}/shaders/position_color_shifted.slang
+    ${PROJECT_SOURCE_DIR}/shaders/position_monster.vert.slang
     ${PROJECT_SOURCE_DIR}/shaders/lit.slang
     ${PROJECT_SOURCE_DIR}/shaders/solid.slang
     ${PROJECT_SOURCE_DIR}/shaders/skybox_vertex.slang

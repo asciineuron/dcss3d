@@ -191,6 +191,10 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
 
         m_mapCubeModel->draw(scenePass);
 
+        // Push player 2D position for monster look-at rotation (vertex uniform slot 1)
+        glm::vec4 playerPos2D(camera.pos.x, camera.pos.z, 0.0f, 0.0f);
+        SDL_PushGPUVertexUniformData(commandBuffer, 1, glm::value_ptr(playerPos2D), sizeof(playerPos2D));
+
         // Draw monsters on top (depth-tested, same pass) — one draw per model type
         for (auto& [file, model] : m_monsterModelCache) {
             model->draw(scenePass);
@@ -836,11 +840,11 @@ MonsterBufferedModel* Renderer::getOrCreateMonsterModel(const std::string& model
     if (it != m_monsterModelCache.end())
         return it->second.get();
 
-    // Lazily create the model — same shaders as the original MVP monster model.
-    // Uses position_color_shifted.vert (with sentinel 999 hack) and solid.frag (no texture).
+    // Lazily create the model — standalone monster vertex shader with look-at rotation.
+    // Uses position_monster.vert (no sentinel hack) and solid.frag (no texture).
     auto model = std::make_unique<MonsterBufferedModel>(
         m_GPUDevice, m_window, std::make_unique<Model>(modelFile),
-        ShaderParameters { std::string_view("position_color_shifted.vert"), 0, 1, 0, 0 },
+        ShaderParameters { std::string_view("position_monster.vert"), 0, 2, 0, 0 },
         ShaderParameters { std::string_view("solid.frag"), 0, 1, 0, 0 });
 
     MonsterBufferedModel* ptr = model.get();

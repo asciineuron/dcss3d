@@ -132,8 +132,8 @@ private:
 class MonsterBufferedModel : public BufferedModel {
 public:
     MonsterBufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
-        ShaderParameters vertex = { std::string_view("position_color_shifted.vert"), 0, 1, 1, 0 },
-        ShaderParameters fragment = { std::string_view("lit.frag"), 0, 1, 0, 0 },
+        ShaderParameters vertex = { std::string_view("position_monster.vert"), 0, 2, 0, 0 },
+        ShaderParameters fragment = { std::string_view("solid.frag"), 0, 1, 0, 0 },
         std::string_view textureFilename = {});
     ~MonsterBufferedModel();
 
