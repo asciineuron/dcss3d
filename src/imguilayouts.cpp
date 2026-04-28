@@ -5,8 +5,6 @@
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include <spdlog/spdlog.h>
-#define GLM_ENABLE_EXPERIMENTAL // for glm::to_string()
-#include "glm/gtx/string_cast.hpp"
 #include <format>
 #include <fstream>
 #include <mutex>
@@ -253,11 +251,100 @@ void displayPlayer(const Player& player)
 {
     ImGui::Begin("player");
 
-    // TODO 2-18 found camera bug! phi circles 2pi very fast/small mouse movement, meaning the sensitivity is just too high
-    ImGui::TextWrapped("%s", std::format("Camera: phi={}, theta={}", player.camera().phi, player.camera().theta).c_str());
-    ImGui::TextWrapped("%s", std::format("Camera position: {}, {}, {}", player.camera().pos[0], player.camera().pos[1], player.camera().pos[2]).c_str());
+    const auto& d = player.data();
 
-    ImGui::TextWrapped("Camera view matrix %s", glm::to_string(player.camera().toViewProjection()).c_str());
+    // --- Player identity ---
+    if (!d.name.empty()) {
+        ImGui::Text("%s the %s %s", d.name.c_str(), d.species.c_str(), d.title.c_str());
+        if (!d.god.empty())
+            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f), "Worshipper of %s", d.god.c_str());
+        ImGui::Separator();
+    } else {
+        ImGui::TextDisabled("Waiting for player data...");
+        ImGui::End();
+        return;
+    }
+
+    // --- Vital stats: HP & MP bars ---
+    ImGui::Text("HP: %d/%d", d.hp, d.hp_max);
+    ImGui::SameLine();
+    {
+        float hpFrac = d.hp_max > 0 ? std::clamp(static_cast<float>(d.hp) / d.hp_max, 0.0f, 1.0f) : 0.0f;
+        ImVec4 hpColor = hpFrac > 0.5f ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f)
+                        : hpFrac > 0.25f ? ImVec4(1.0f, 1.0f, 0.0f, 1.0f)
+                        : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+        ImGui::ProgressBar(hpFrac, ImVec2(-1, 0), "");
+        // Color the bar (workaround: draw over it with colored rect)
+        ImVec2 barMin = ImGui::GetItemRectMin();
+        ImVec2 barMax = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddRectFilled(barMin,
+            ImVec2(barMin.x + (barMax.x - barMin.x) * hpFrac, barMax.y),
+            ImColor(hpColor.x, hpColor.y, hpColor.z, 0.6f));
+    }
+
+    ImGui::Text("MP: %d/%d", d.mp, d.mp_max);
+    ImGui::SameLine();
+    {
+        float mpFrac = d.mp_max > 0 ? std::clamp(static_cast<float>(d.mp) / d.mp_max, 0.0f, 1.0f) : 0.0f;
+        ImGui::ProgressBar(mpFrac, ImVec2(-1, 0), "");
+        ImVec2 barMin = ImGui::GetItemRectMin();
+        ImVec2 barMax = ImGui::GetItemRectMax();
+        ImGui::GetWindowDrawList()->AddRectFilled(barMin,
+            ImVec2(barMin.x + (barMax.x - barMin.x) * mpFrac, barMax.y),
+            ImColor(0.3f, 0.3f, 1.0f, 0.6f));
+    }
+
+    ImGui::Separator();
+
+    // --- Defenses ---
+    ImGui::Text("AC: %-4d  EV: %-4d  SH: %-4d", d.ac, d.ev, d.sh);
+    ImGui::Text("XL: %-4d  Progress: %d%%", d.xl, d.progress);
+    ImGui::Text("Gold: %d", d.gold);
+
+    ImGui::Separator();
+
+    // --- Location ---
+    ImGui::Text("Location: %s:%d", d.place.c_str(), d.depth);
+    ImGui::Text("Position: (%d, %d)", d.pos_x, d.pos_y);
+
+    ImGui::Separator();
+
+    // --- Attributes ---
+    if (ImGui::CollapsingHeader("Attributes")) {
+        ImGui::Text("Str: %d (%d)  Int: %d (%d)  Dex: %d (%d)",
+                     d.str, d.str_max, d.intel, d.intel_max, d.dex, d.dex_max);
+        if (d.piety_rank > 0)
+            ImGui::Text("Piety: %.*s*****", d.piety_rank, "**********");
+        if (d.penance)
+            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "(Penance)");
+    }
+
+    // --- Status effects ---
+    if (!d.status.empty()) {
+        ImGui::Separator();
+        ImGui::Text("Status:");
+        for (const auto& s : d.status) {
+            ImGui::SameLine();
+            ImGui::Text("[%s]", s.c_str());
+        }
+    }
+
+    // --- Inventory ---
+    if (!d.inv.empty() && ImGui::CollapsingHeader("Inventory")) {
+        for (const auto& [slot, item] : d.inv) {
+            char letter = 'a' + static_cast<char>(slot);
+            ImGui::Text("%c - %s", letter, item.name.c_str());
+            if (item.count > 1)
+                ImGui::SameLine(); ImGui::Text(" x%d", item.count);
+        }
+    }
+
+    // --- Camera debug (collapsible) ---
+    if (ImGui::CollapsingHeader("Camera (debug)")) {
+        ImGui::TextWrapped("phi=%.3f, theta=%.3f", player.camera().phi, player.camera().theta);
+        ImGui::TextWrapped("pos: (%.2f, %.2f, %.2f)",
+                           player.camera().pos[0], player.camera().pos[1], player.camera().pos[2]);
+    }
 
     ImGui::End();
 }

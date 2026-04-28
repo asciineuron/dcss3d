@@ -9,6 +9,11 @@ using namespace std::numbers;
 
 void Player::handleMessage(const json& message)
 {
+    if (message["msg"] == "player") {
+        handlePlayerMessage(message);
+        return;
+    }
+
     if (message["msg"] != "map")
         return;
 
@@ -68,6 +73,99 @@ void Player::handleMessage(const json& message)
         // Clear the last move direction since we've applied the adjustment
         m_lastMoveDirection = None;
     }
+}
+
+void Player::handlePlayerMessage(const json& message)
+{
+    // Mirror upstream JS handle_player_message() in player.js:543-593
+
+    // 1. Merge inventory items (like JS: $.extend(player.inv[i], data.inv[i]))
+    if (auto inv = message.find("inv"); inv != message.end() && inv->is_object()) {
+        for (const auto& [key, itemJson] : inv->items()) {
+            int slot = std::stoi(key);  // JS uses string keys like "0", "1", ...
+            auto& item = m_data.inv[slot];
+            item.slot = slot;
+            if (auto n = itemJson.find("name"); n != itemJson.end())
+                item.name = n->get<std::string>();
+            if (auto c = itemJson.find("count"); c != itemJson.end())
+                item.count = c->get<int>();
+            if (auto i = itemJson.find("idx"); i != itemJson.end())
+                item.idx = i->get<int>();
+        }
+    }
+
+    // 2. Handle time_delta (JS: calculates based on last_time)
+    if (auto t = message.find("time"); t != message.end()) {
+        int time = t->get<int>();
+        if (m_lastTime != 0)
+            m_data.time_delta = time - m_lastTime;
+        m_lastTime = time;
+        m_data.time = time;
+    }
+
+    // 3. Extend remaining fields onto player data (JS: $.extend(player, data))
+    // Only update fields present in the message (partial updates are common)
+    auto setIf = [&]<typename T>(const char* key, T& field) {
+        if (auto it = message.find(key); it != message.end())
+            field = it->get<T>();
+    };
+
+    setIf("name", m_data.name);
+    setIf("god", m_data.god);
+    setIf("title", m_data.title);
+    setIf("species", m_data.species);
+    setIf("hp", m_data.hp);
+    setIf("hp_max", m_data.hp_max);
+    setIf("real_hp_max", m_data.real_hp_max);
+    setIf("poison_survival", m_data.poison_survival);
+    setIf("mp", m_data.mp);
+    setIf("mp_max", m_data.mp_max);
+    setIf("dd_real_mp_max", m_data.dd_real_mp_max);
+    setIf("ac", m_data.ac);
+    setIf("ev", m_data.ev);
+    setIf("sh", m_data.sh);
+    setIf("xl", m_data.xl);
+    setIf("progress", m_data.progress);
+    setIf("gold", m_data.gold);
+    setIf("str", m_data.str);
+    setIf("int", m_data.intel);
+    setIf("dex", m_data.dex);
+    setIf("str_max", m_data.str_max);
+    setIf("int_max", m_data.intel_max);
+    setIf("dex_max", m_data.dex_max);
+    setIf("piety_rank", m_data.piety_rank);
+    setIf("penance", m_data.penance);
+    setIf("wizard", m_data.wizard);
+    setIf("explore", m_data.explore);
+    setIf("depth", m_data.depth);
+    setIf("place", m_data.place);
+    setIf("contam", m_data.contam);
+    setIf("noise", m_data.noise);
+    setIf("adjusted_noise", m_data.adjusted_noise);
+    setIf("weapon_index", m_data.weapon_index);
+    setIf("offhand_index", m_data.offhand_index);
+    setIf("quiver_item", m_data.quiver_item);
+    setIf("unarmed_attack", m_data.unarmed_attack);
+
+    // status: array of strings
+    if (auto status = message.find("status"); status != message.end() && status->is_array()) {
+        m_data.status.clear();
+        for (const auto& s : *status)
+            m_data.status.push_back(s.get<std::string>());
+    }
+
+    // pos: object {x, y}
+    if (auto pos = message.find("pos"); pos != message.end() && pos->is_object()) {
+        if (auto x = pos->find("x"); x != pos->end())
+            m_data.pos_x = x->get<int>();
+        if (auto y = pos->find("y"); y != pos->end())
+            m_data.pos_y = y->get<int>();
+    }
+
+    spdlog::debug("Player updated: {} XL{} HP:{}/{} MP:{}/{} AC:{} EV:{} SH:{} @ ({},{}) in {}:{}",
+                  m_data.name, m_data.xl, m_data.hp, m_data.hp_max,
+                  m_data.mp, m_data.mp_max, m_data.ac, m_data.ev, m_data.sh,
+                  m_data.pos_x, m_data.pos_y, m_data.place, m_data.depth);
 }
 
 static float wrap(float x, float min, float max)
