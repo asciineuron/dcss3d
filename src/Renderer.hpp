@@ -26,6 +26,7 @@ struct Camera {
 struct Face {
     std::array<Uint16, 3> vertexIndices;
     std::array<Uint16, 3> textureIndices;
+    std::array<Uint16, 3> normalIndices {};  // 0 = absent, 1+ = 1-based index into rawNormals
 };
 
 struct LightUniforms {
@@ -47,7 +48,8 @@ public:
 private:
     std::vector<glm::vec3> m_vertices;
     std::vector<glm::vec2> m_uvs;
-    std::vector<glm::vec3> m_normals;
+    std::vector<glm::vec3> m_rawNormals; // OBJ vn lines — empty if model has no vertex normals
+    std::vector<glm::vec3> m_normals;   // expanded per-vertex normals (indexed from raw or computed)
     std::vector<Face> m_faces;
     std::string m_name;
     const std::string m_resourcePath;
@@ -138,7 +140,11 @@ public:
     void release() override;
 
     void draw(SDL_GPURenderPass*) override;
-    void pushMonsterData(const GameMap&, SDL_GPUCommandBuffer*);
+
+    // Push instance data for a filtered subset of monsters (pre-grouped by model type).
+    // Accepts a vector of (position, monster-pointer) pairs.
+    void pushMonsterData(const std::vector<std::pair<Pos2<int>, const Monster*>>&,
+                         SDL_GPUCommandBuffer*);
 
 private:
     SDL_GPUBuffer* m_monsterInstanceBuffer {};
@@ -185,8 +191,17 @@ private:
     SDL_GPUDevice* m_GPUDevice;
 
     std::unique_ptr<MapDisplacedBufferedModel> m_mapCubeModel;
-    std::unique_ptr<MonsterBufferedModel> m_monsterModel;
     std::unique_ptr<Skybox> m_skybox;
+
+    // Model cache: keyed by OBJ filename, so multiple monster types can share the same geometry.
+    // Lazily populated via getOrCreateMonsterModel().
+    std::unordered_map<std::string, std::unique_ptr<MonsterBufferedModel>> m_monsterModelCache;
+    MonsterBufferedModel* getOrCreateMonsterModel(const std::string& modelFile);
+
+    // Resolves which OBJ model file to use for a given monster.
+    // Uses btype (polymorph/dervied base) if available, otherwise type.
+    // Returns a reference to a static string literal.
+    static const std::string& getModelFileForType(const Monster& mon);
 
     SDL_WindowID m_windowID {};
     int m_windowWidth {};
