@@ -1,5 +1,7 @@
 #pragma once
 #include "GameMap.hpp"
+#include "ShaderUtil.hpp"
+#include "Skybox.hpp"
 #include <SDL3/SDL.h>
 #include <atomic>
 #include <glm/glm.hpp>
@@ -15,6 +17,10 @@ struct Camera {
     float aspectRatio { 1.777777f };
 
     glm::mat4 toViewProjection() const;
+
+    // View-projection with translation stripped (rotation only).
+    // Used for skybox rendering so the skybox stays centered on the camera.
+    glm::mat4 toSkyViewProjection() const;
 };
 
 struct Face {
@@ -47,14 +53,6 @@ private:
     const std::string m_resourcePath;
 
     void loadObj(std::string_view filename);
-};
-
-struct ShaderParameters {
-    std::string_view filename;
-    Uint32 samplerCount {};
-    Uint32 uniformBufferCount {};
-    Uint32 storageBufferCount {};
-    Uint32 storageTextureCount {};
 };
 
 // this base class can draw a single model at its designated position
@@ -188,6 +186,7 @@ private:
 
     std::unique_ptr<MapDisplacedBufferedModel> m_mapCubeModel;
     std::unique_ptr<MonsterBufferedModel> m_monsterModel;
+    std::unique_ptr<Skybox> m_skybox;
 
     SDL_WindowID m_windowID {};
     int m_windowWidth {};
