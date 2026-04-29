@@ -53,7 +53,6 @@ Renderer::Renderer()
     , m_windowHeight { 0 }
     , m_windowWidth { 0 }
     , m_renderCount { 0 }
-    , m_renderUI { false }
 {
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         throw std::runtime_error(std::format("SDL_Init failure: {}", SDL_GetError()));
@@ -207,10 +206,13 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
         // Draw skybox LAST — uses xyww trick (depth=1.0) with LESS_OR_EQUAL test.
         // Only fragments where no scene geometry was drawn will be shaded.
         // View matrix has translation stripped so skybox stays centered on camera.
+        // Skybox is hidden until the player logs into a game session (login_success).
         // Must push uniform on commandBuffer (not renderPass) before the draw call.
-        glm::mat4 skyViewProj = camera.toSkyViewProjection();
-        SDL_PushGPUVertexUniformData(commandBuffer, 0, glm::value_ptr(skyViewProj), sizeof(skyViewProj));
-        m_skybox->draw(scenePass, skyViewProj);
+        if (WindowManager::instance().isGameConnected()) {
+            glm::mat4 skyViewProj = camera.toSkyViewProjection();
+            SDL_PushGPUVertexUniformData(commandBuffer, 0, glm::value_ptr(skyViewProj), sizeof(skyViewProj));
+            m_skybox->draw(scenePass, skyViewProj);
+        }
 
         SDL_EndGPURenderPass(scenePass);
 

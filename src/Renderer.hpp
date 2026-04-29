@@ -182,8 +182,6 @@ public:
 
     SDL_GPUDevice* gpu_device() { return m_GPUDevice; }
 
-    void setRenderUI(bool renderUI) { m_renderUI = renderUI; };
-    const bool renderUI() const { return m_renderUI; }
 
     // Set the world-space position of the target cell for highlighting.
     // w component: 1.0 = enabled, 0.0 = disabled (no cell to highlight).
@@ -212,7 +210,6 @@ private:
     int m_windowHeight {};
 
     std::atomic_uint64_t m_renderCount;
-    bool m_renderUI; // toggle to disable imgui overlay
 
     // Depth buffer for proper filled polygon rendering
     SDL_GPUTexture* m_depthTexture {};

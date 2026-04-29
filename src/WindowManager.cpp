@@ -61,6 +61,9 @@ bool WindowManager::shouldUseRelativeMouse() const
 bool WindowManager::isVisible(const char* windowName) const
 {
     switch (m_mode) {
+    case Mode::Login:
+        // Only the network window is visible before login
+        return (windowName != nullptr) && (std::string(windowName) == "network");
     case Mode::Overlay:
         // All windows visible in overlay mode
         return true;
@@ -74,8 +77,38 @@ bool WindowManager::isVisible(const char* windowName) const
     return false;
 }
 
+bool WindowManager::isGameConnected() const
+{
+    return m_mode != Mode::Login;
+}
+
+void WindowManager::handleMessage(const json& message)
+{
+    // Transition from Login to Overlay when the game process starts.
+    // login_success only authenticates — character selection happens before game_started.
+    // Once game_started arrives, reveal the skybox and all UI windows.
+    if (m_mode == Mode::Login) {
+        auto msg = message.find("msg");
+        if (msg != message.end() && msg->get<std::string>() == "game_started") {
+            setMode(Mode::Overlay);
+        }
+    }
+}
+
 bool WindowManager::handleKeyEvent(SDL_Scancode scancode, SDL_Window* window)
 {
+    // In Login mode, mode-toggle keys are consumed but do nothing.
+    // The user must complete login before toggling UI modes.
+    if (m_mode == Mode::Login) {
+        switch (scancode) {
+        case SDL_SCANCODE_ESCAPE:
+        case SDL_SCANCODE_E:
+            return true;  // consumed, no-op
+        default:
+            return false;
+        }
+    }
+
     switch (scancode) {
     case SDL_SCANCODE_ESCAPE:
         if (m_mode == Mode::Equipment) {

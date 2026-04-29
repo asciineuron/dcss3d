@@ -182,7 +182,7 @@ int main(int argc, char* argv[])
         ImGuiIO& io = ImGui::GetIO();
         // could add e.g. logger
 
-        handlerConfig responseHandlers = { { "map", { player, gameTime, map, audioManager } }, { "player", { player } }, { "game_ended", { audioManager } } };
+        handlerConfig responseHandlers = { { "map", { player, gameTime, map, audioManager } }, { "player", { player } }, { "game_ended", { audioManager } }, { "game_started", { WindowManager::instance() } } };
 
         // Set up window layout callback for save functionality
         setWindowLayoutCallback(getWindowLayoutCallback);
