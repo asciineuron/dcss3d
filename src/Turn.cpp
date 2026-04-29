@@ -89,3 +89,38 @@ const std::unordered_map<SDL_Scancode, const char*> InputTurn::scancodeToText = 
     { SDL_SCANCODE_KP_GREATER, ">" }, // are the <> scancodes correct?
     { SDL_SCANCODE_KP_LESS, "<" }
 };
+
+AttackTurn::AttackTurn(Direction direction)
+    : m_direction { direction }
+{
+}
+
+json AttackTurn::asMessage() const
+{
+    // Map compass direction to the corresponding vim key for Ctrl-attack.
+    // crawl's CONTROL macro: CONTROL('K') = 'K' - 'A' + 1, etc.
+    // These trigger CMD_ATTACK_* commands — swing weapon without moving.
+    // Direction → vim key → CONTROL value:
+    //   N=K(11)  S=J(10)  E=L(12)  W=H(8)
+    //   NE=U(21) SE=N(14) SW=B(2)  NW=Y(25)
+    int ctrlKeycode = 0;
+    using enum Direction;
+    switch (m_direction) {
+    case North:     ctrlKeycode = 'K' - 'A' + 1; break;
+    case South:     ctrlKeycode = 'J' - 'A' + 1; break;
+    case East:      ctrlKeycode = 'L' - 'A' + 1; break;
+    case West:      ctrlKeycode = 'H' - 'A' + 1; break;
+    case NorthEast: ctrlKeycode = 'U' - 'A' + 1; break;
+    case SouthEast: ctrlKeycode = 'N' - 'A' + 1; break;
+    case SouthWest: ctrlKeycode = 'B' - 'A' + 1; break;
+    case NorthWest: ctrlKeycode = 'Y' - 'A' + 1; break;
+    default:
+        throw std::logic_error("invalid attack direction");
+    }
+
+    json message;
+    message["msg"] = "key";
+    message["keycode"] = ctrlKeycode;
+
+    return message;
+}

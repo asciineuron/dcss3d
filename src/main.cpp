@@ -112,11 +112,18 @@ std::unique_ptr<Turn> processMouseInput(Player& player)
 
     player.updateView(mouse_dx, mouse_dy);
 
-    if (mouseState & SDL_BUTTON_LMASK) {
-        // generate attack turn
-        // TODO: how to interact with imgui? and suppress if UI overlay active
-        spdlog::debug("left mouse clicked");
+    // Debounce: only fire on rising edge (button just pressed)
+    static bool s_lastLeftPressed = false;
+    bool leftPressed = (mouseState & SDL_BUTTON_LMASK) != 0;
+
+    if (leftPressed && !s_lastLeftPressed) {
+        Direction dir = player.getFacingDirection();
+        spdlog::debug("left mouse clicked, attacking direction: {}", directionToString[dir]);
+        s_lastLeftPressed = true;
+        return std::make_unique<AttackTurn>(dir);
     }
+
+    s_lastLeftPressed = leftPressed;
     return nullptr;
 }
 
@@ -203,6 +210,19 @@ int main(int argc, char* argv[])
             displayAllWindows(renderer.renderUI(), player, map, networkManager, renderer, LAYOUT_FILENAME);
 
             ImGui::Render();
+
+            // Compute target cell highlight position before rendering
+            {
+                Pos2<int> targetCell = player.getTargetCell();
+                auto tileOpt = map.getTileAt(targetCell.x, targetCell.y);
+                if (tileOpt.has_value()) {
+                    glm::vec2 renderCoords = mapCoordToRender(targetCell);
+                    // renderCoords: x=worldX, y=worldZ; Y(height) is 0 for cube base
+                    renderer.setTargetHighlight(glm::vec4(renderCoords.x, 0.0f, renderCoords.y, 1.0f));
+                } else {
+                    renderer.setTargetHighlight(glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)); // disabled
+                }
+            }
 
             renderer.doRender(map, player.camera()); // imgui layout too
 

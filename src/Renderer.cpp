@@ -88,7 +88,7 @@ Renderer::Renderer()
     m_mapCubeModel = std::make_unique<MapDisplacedBufferedModel>(
         m_GPUDevice, m_window, std::make_unique<Model>("cube1.obj"),
         ShaderParameters { std::string_view("position_color_shifted.vert"), 0, 1, 0, 0 },
-        ShaderParameters { std::string_view("lit.frag"), 1, 1, 0, 0 },
+        ShaderParameters { std::string_view("lit.frag"), 1, 2, 0, 0 },
         std::string_view("resources/cube1_diffuse.png"));
 
     // Monster models are lazily created per OBJ file via getOrCreateMonsterModel().
@@ -188,6 +188,9 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
             .cameraPos = glm::vec4(camera.pos, 1.0f),
         };
         SDL_PushGPUFragmentUniformData(commandBuffer, 0, &lightData, sizeof(lightData));
+
+        // Push target cell highlight position as fragment uniform slot 1
+        SDL_PushGPUFragmentUniformData(commandBuffer, 1, &m_targetHighlightPos, sizeof(m_targetHighlightPos));
 
         m_mapCubeModel->draw(scenePass);
 

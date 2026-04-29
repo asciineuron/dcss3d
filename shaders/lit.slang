@@ -8,6 +8,14 @@ cbuffer LightUBO : register(b0, space0)
     float4 cameraPos;
 };
 
+// Target cell highlight uniform — binding 1, space0
+// xyz = world-space center of the targeted map cell, w = 1.0 if enabled, 0.0 if disabled
+[[vk::binding(1)]]
+cbuffer TargetUBO : register(b1, space0)
+{
+    float4 targetCellPos;
+};
+
 // Texture sampler — binding 0, space2 (space1 used for UBO in vertex shader)
 [[vk::binding(0, 2)]]
 Texture2D textureSampler : register(t0, space2);
@@ -73,6 +81,23 @@ float4 main(frag_in input) : SV_Target0
     
     // Modulate by texture color
     result *= texColor.rgb;
+
+    // Target cell highlight: warm yellow glow on the cell the player is aiming at.
+    // targetCellPos.w > 0.5 means highlighting is active.
+    if (targetCellPos.w > 0.5f)
+    {
+        float cellHalfSize = 0.48f; // half of a 1x1 cell minus tiny margin
+        float3 cellCenter = targetCellPos.xyz;
+        bool inCell = abs(worldPos.x - cellCenter.x) < cellHalfSize
+                   && abs(worldPos.z - cellCenter.z) < cellHalfSize
+                   && worldPos.y > -1.0f;
+        if (inCell)
+        {
+            // Boost ambient and add warm yellow overlay
+            float3 highlightColor = float3(0.8f, 0.7f, 0.1f);
+            result += highlightColor * 0.4f;
+        }
+    }
     
     return float4(result, tileColor.a * texColor.a);
 }

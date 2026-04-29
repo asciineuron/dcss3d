@@ -54,3 +54,15 @@ private:
     SDL_Scancode m_input;
     static const std::unordered_map<SDL_Scancode, const char*> scancodeToText;
 };
+
+// Sends a force-attack (swing weapon) in a direction.
+// Uses the webtiles "key" protocol with CONTROL(keycode) to trigger
+// CMD_ATTACK_* on the server — the character swings without moving.
+class AttackTurn : public Turn {
+public:
+    AttackTurn(Direction);
+    json asMessage() const override;
+
+private:
+    Direction m_direction;
+};
