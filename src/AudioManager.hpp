@@ -1,6 +1,5 @@
 #pragma once
 #include "MessageQueue.hpp"
-#include "Turn.hpp"
 #include <SDL3/SDL.h>
 #include <string>
 #include <unordered_map>
@@ -15,7 +14,9 @@ public:
     AudioManager(AudioManager&&) = delete;
 
     void handleMessage(const json& message) override;
-    void onPlayerAction(const Turn& turn);
+
+    // Play a named sound effect. Safe to call from any thread.
+    void triggerSound(const std::string& name);
 
     // For testing
     const std::vector<std::string>& triggeredSounds() const { return m_triggeredSounds; }
@@ -28,7 +29,6 @@ private:
         SDL_AudioSpec spec {};
     };
 
-    void triggerSound(const std::string& name);
     const SoundClip* loadSound(const std::string& name);
 
     SDL_AudioStream* m_audioStream = nullptr;

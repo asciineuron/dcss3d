@@ -217,6 +217,7 @@ target_sources(dcss3d_tests PRIVATE
     src/GameMap.cpp
     src/Turn.cpp
     src/MessageQueue.cpp
+    src/PlayerState.cpp
     src/AudioManager.cpp
     src/debug.cpp
 )

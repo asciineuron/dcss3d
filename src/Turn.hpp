@@ -6,10 +6,16 @@
 
 using json = nlohmann::json;
 
+class AudioManager;
+
 class Turn {
 public:
     virtual ~Turn() = default;
     virtual json asMessage() const = 0;
+
+    // Called after the turn is sent to the server.
+    // Subclasses override to produce appropriate sound effects.
+    virtual void playSound(AudioManager& audio) const {}
 };
 
 enum Direction {
@@ -32,6 +38,7 @@ class MoveTurn : public Turn {
 public:
     MoveTurn(Direction);
     json asMessage() const override;
+    void playSound(AudioManager& audio) const override;
     Direction getDirection() const { return m_direction; }
 
 private:

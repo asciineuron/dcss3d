@@ -13,8 +13,7 @@
 
 // TODO where/how to handle this now?
 
-// Forward declare Direction enum from Turn.hpp
-enum Direction;
+class AudioManager;
 
 // --- PlayerData: mirrors upstream webtiles JS player object ---
 // See: game_data/static/player.js (game_init.player handler)
@@ -127,6 +126,7 @@ private:
 class Player : public MessageHandler {
 public:
     void handleMessage(const json& message) override;
+    void setAudioManager(AudioManager* audio) { m_audioManager = audio; }
 
     const Camera& camera() const { return m_camera; };
     const PlayerData& data() const { return m_data; };
@@ -157,6 +157,7 @@ private:
     Direction m_lastMoveDirection { None }; // Track last move for camera adjustment on map update
     PlayerData m_data;
     int m_lastTime = 0; // for time_delta calculation
+    AudioManager* m_audioManager = nullptr;
 
     static constexpr float s_mouseSensitivity = 0.005;
 };

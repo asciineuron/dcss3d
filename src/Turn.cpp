@@ -1,6 +1,7 @@
 #include "Turn.hpp"
 #include <SDL3/SDL_scancode.h>
 #include <spdlog/spdlog.h>
+#include "AudioManager.hpp"
 
 const char* directionToString[DirectionSize] = {
     "None",
@@ -62,6 +63,11 @@ json MoveTurn::asMessage() const
 
     spdlog::debug("move as message: {}", message.dump());
     return message;
+}
+
+void MoveTurn::playSound(AudioManager& audio) const
+{
+    audio.triggerSound("footfall");
 }
 
 json playMessage(std::string_view gameID)

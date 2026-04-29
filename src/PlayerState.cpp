@@ -1,4 +1,5 @@
 #include "PlayerState.hpp"
+#include "AudioManager.hpp"
 #include "GameMap.hpp"
 #include "Turn.hpp"
 #include "debug.hpp"
@@ -105,6 +106,10 @@ void Player::handlePlayerMessage(const json& message)
         m_data.time = time;
     }
 
+    // 2.5. Detect HP decrease for damage sound
+    int oldHp = m_data.hp;
+    bool hadPreviousPlayerMsg = m_data.hp > 0 || !m_data.name.empty();
+
     // 3. Extend remaining fields onto player data (JS: $.extend(player, data))
     // Only update fields present in the message (partial updates are common)
     auto setIf = [&]<typename T>(const char* key, T& field) {
@@ -155,6 +160,11 @@ void Player::handlePlayerMessage(const json& message)
     setIf("quiver_desc", m_data.quiver_desc);
     setIf("unarmed_attack", m_data.unarmed_attack);
     setIf("unarmed_attack_colour", m_data.unarmed_attack_colour);
+
+    // Detect HP decrease for damage sound (after hp has been updated by setIf above)
+    if (hadPreviousPlayerMsg && m_audioManager && m_data.hp < oldHp) {
+        m_audioManager->triggerSound("damage");
+    }
 
     // status: array of strings
     if (auto status = message.find("status"); status != message.end() && status->is_array()) {

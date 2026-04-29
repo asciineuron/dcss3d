@@ -54,14 +54,6 @@ void AudioManager::handleMessage(const json& message)
     }
 }
 
-void AudioManager::onPlayerAction(const Turn& turn)
-{
-    if (dynamic_cast<const MoveTurn*>(&turn)) {
-        triggerSound("footfall");
-    }
-    // Non-MoveTurn actions produce no sound for now
-}
-
 void AudioManager::triggerSound(const std::string& name)
 {
     // Record for testability
