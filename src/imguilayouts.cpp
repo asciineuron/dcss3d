@@ -1,6 +1,7 @@
 #include "imguilayouts.hpp"
 #include "MessageQueue.hpp"
 #include "Turn.hpp"
+#include "WindowManager.hpp"
 #include "debug.hpp"
 #include "imgui.h"
 #include "imgui_stdlib.h"
@@ -118,7 +119,7 @@ static void applyResetLayout(const char* windowName, int index)
     ImGui::SetNextWindowSize(ImVec2(0, 0), ImGuiCond_Always);
 }
 
-void displayAllWindows(bool renderUI, const Player& player, const GameMap& map,
+void displayAllWindows(const Player& player, const GameMap& map,
                        NetworkManager& networkManager, Renderer& renderer,
                        const char* layoutFilename)
 {
@@ -141,8 +142,17 @@ void displayAllWindows(bool renderUI, const Player& player, const GameMap& map,
         }
     };
 
+    WindowManager& wm = WindowManager::instance();
+    const bool normalMode = (wm.getMode() == WindowManager::Mode::Normal);
+
+    // Helper macro for window visibility gating:
+    // Visible if WindowManager says so, OR if we're in Normal mode and it's pinned.
+    auto showWindow = [&](const char* name) -> bool {
+        return wm.isVisible(name) || (normalMode && isWindowPinned(name));
+    };
+
     // Player window (index 0)
-    if (renderUI || isWindowPinned("player")) {
+    if (showWindow("player")) {
         if (shouldReset) {
             applyResetLayout("player", 0);
         } else if (pendingLayout && pendingLayoutCount > 0) {
@@ -152,7 +162,7 @@ void displayAllWindows(bool renderUI, const Player& player, const GameMap& map,
     }
 
     // Map window (index 1)
-    if (renderUI || isWindowPinned("map")) {
+    if (showWindow("map")) {
         if (shouldReset) {
             applyResetLayout("map", 1);
         } else if (pendingLayout && pendingLayoutCount > 0) {
@@ -162,7 +172,7 @@ void displayAllWindows(bool renderUI, const Player& player, const GameMap& map,
     }
 
     // Network window (index 2)
-    if (renderUI || isWindowPinned("network")) {
+    if (showWindow("network")) {
         if (shouldReset) {
             applyResetLayout("network", 2);
         } else if (pendingLayout && pendingLayoutCount > 0) {
@@ -172,7 +182,7 @@ void displayAllWindows(bool renderUI, const Player& player, const GameMap& map,
     }
 
     // Renderer window (index 3)
-    if (renderUI || isWindowPinned("renderer")) {
+    if (showWindow("renderer")) {
         if (shouldReset) {
             applyResetLayout("renderer", 3);
         } else if (pendingLayout && pendingLayoutCount > 0) {
@@ -182,13 +192,23 @@ void displayAllWindows(bool renderUI, const Player& player, const GameMap& map,
     }
 
     // Settings window (index 4)
-    if (renderUI || isWindowPinned("settings")) {
+    if (showWindow("settings")) {
         if (shouldReset) {
             applyResetLayout("settings", 4);
         } else if (pendingLayout && pendingLayoutCount > 0) {
             applyLayoutForWindow("settings", pendingLayout, pendingLayoutCount);
         }
         settingsMenu(layoutFilename);
+    }
+
+    // Equipment window (index 5)
+    if (showWindow("equipment")) {
+        if (shouldReset) {
+            applyResetLayout("equipment", 5);
+        } else if (pendingLayout && pendingLayoutCount > 0) {
+            applyLayoutForWindow("equipment", pendingLayout, pendingLayoutCount);
+        }
+        displayEquipment(player);
     }
 
     if (shouldReset || (pendingLayout && pendingLayoutCount > 0)) {
@@ -254,7 +274,7 @@ bool saveWindowLayout(const char* filename)
 
     // Get all window names and their current layouts
     const char* windowNames[] = {
-        "player", "map", "network", "renderer", "settings"
+        "player", "map", "network", "renderer", "settings", "equipment"
     };
 
     std::ostringstream json;
@@ -549,7 +569,6 @@ void displayPlayer(const Player& player)
     }
 
     // --- Inventory grid (52 slots: a-z, A-Z, 4 rows of 13) ---
-    static bool showInvDetails = false;
     ImGui::Separator();
     ImGui::Text("Inventory:");
 
@@ -569,7 +588,6 @@ void displayPlayer(const Player& player)
             const InventoryItem* item = hasItem ? &d.inv.at(slotIdx) : nullptr;
             bool isEmpty = !hasItem || item->name.empty();
 
-            // ImGui::PushID(slotIdx);
             if (isEmpty) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
                 ImGui::Text("%c", letter);
@@ -587,82 +605,10 @@ void displayPlayer(const Player& player)
                     ImGui::EndTooltip();
                 }
             }
-            // ImGui::PopID();
 
             if (col < 12)
                 ImGui::SameLine();
         }
-    }
-
-    // Button to toggle detailed inventory view
-    if (ImGui::Button(showInvDetails ? "Hide Details" : "Inventory Details")) {
-        showInvDetails = !showInvDetails;
-    }
-
-    if (showInvDetails) {
-        ImGui::BeginChild("InvDetailList", ImVec2(0, 150), ImGuiChildFlags_Borders);
-        if (d.inv.empty()) {
-            ImGui::TextDisabled("(inventory not yet received)");
-        } else {
-            // --- Equipped summary at top ---
-            bool hasEquip = false;
-
-            // Wielded weapon
-            if (d.weapon_index >= 0) {
-                auto wit = d.inv.find(d.weapon_index);
-                if (wit != d.inv.end() && !wit->second.name.empty()) {
-                    char wl = static_cast<char>(d.weapon_index < 26 ? 'a' + d.weapon_index : 'A' + d.weapon_index - 26);
-                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%c) %s (weapon)", wl, wit->second.name.c_str());
-                    hasEquip = true;
-                }
-            }
-
-            // Offhand (dual-wield)
-            if (d.offhand_weapon && d.offhand_index >= 0) {
-                auto oit = d.inv.find(d.offhand_index);
-                if (oit != d.inv.end() && !oit->second.name.empty()) {
-                    char ol = static_cast<char>(d.offhand_index < 26 ? 'a' + d.offhand_index : 'A' + d.offhand_index - 26);
-                    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%c) %s (offhand)", ol, oit->second.name.c_str());
-                    hasEquip = true;
-                }
-            }
-
-            // Quivered
-            if (d.quiver_item >= 0) {
-                auto qit = d.inv.find(d.quiver_item);
-                if (qit != d.inv.end() && !qit->second.name.empty()) {
-                    char ql = static_cast<char>(d.quiver_item < 26 ? 'a' + d.quiver_item : 'A' + d.quiver_item - 26);
-                    ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%c) %s (quivered)", ql, qit->second.name.c_str());
-                    hasEquip = true;
-                }
-            }
-
-            // Armour (base_type=2 items not already shown)
-            for (const auto& [slot, item] : d.inv) {
-                if (item.name.empty()) continue;
-                if (item.base_type != 2) continue;
-                if (slot == d.weapon_index || slot == d.offhand_index || slot == d.quiver_item) continue;
-                char al = static_cast<char>(slot < 26 ? 'a' + slot : 'A' + slot - 26);
-                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%c) %s (worn)", al, item.name.c_str());
-                hasEquip = true;
-            }
-
-            if (hasEquip) {
-                ImGui::Separator();
-            }
-
-            // Full inventory list
-            for (const auto& [slot, item] : d.inv) {
-                if (item.name.empty()) continue;
-                char letter = static_cast<char>(slot < 26 ? 'a' + slot : 'A' + slot - 26);
-                ImGui::Text("%c - %s", letter, item.name.c_str());
-                if (item.count > 1) {
-                    ImGui::SameLine();
-                    ImGui::Text("x%d", item.count);
-                }
-            }
-        }
-        ImGui::EndChild();
     }
 
     // --- Camera debug (collapsible) ---
@@ -740,6 +686,93 @@ void displayMap(const GameMap& map)
             ImGui::Text(" type=%d att=%d threat=%d", mon.type(), mon.att(), mon.threat());
         }
     }
+
+    ImGui::End();
+}
+
+void displayEquipment(const Player& player)
+{
+    ImGui::Begin("equipment");
+    PinButton("equipment");
+    ImGui::Spacing();
+
+    const auto& d = player.data();
+
+    if (d.inv.empty()) {
+        ImGui::TextDisabled("(inventory not yet received)");
+        ImGui::End();
+        return;
+    }
+
+    // --- Equipped summary ---
+    ImGui::SeparatorText("Equipped");
+    bool hasEquip = false;
+
+    // Wielded weapon
+    if (d.weapon_index >= 0) {
+        auto wit = d.inv.find(d.weapon_index);
+        if (wit != d.inv.end() && !wit->second.name.empty()) {
+            char wl = static_cast<char>(d.weapon_index < 26 ? 'a' + d.weapon_index : 'A' + d.weapon_index - 26);
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%c) %s (weapon)", wl, wit->second.name.c_str());
+            hasEquip = true;
+        }
+    } else if (!d.unarmed_attack.empty()) {
+        ImGui::TextDisabled("%s", d.unarmed_attack.c_str());
+        hasEquip = true;
+    }
+
+    // Offhand (dual-wield)
+    if (d.offhand_weapon && d.offhand_index >= 0) {
+        auto oit = d.inv.find(d.offhand_index);
+        if (oit != d.inv.end() && !oit->second.name.empty()) {
+            char ol = static_cast<char>(d.offhand_index < 26 ? 'a' + d.offhand_index : 'A' + d.offhand_index - 26);
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "%c) %s (offhand)", ol, oit->second.name.c_str());
+            hasEquip = true;
+        }
+    }
+
+    // Quivered
+    if (!d.quiver_desc.empty()) {
+        std::string stripped = stripColorTags(d.quiver_desc);
+        ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "Q: %s", stripped.c_str());
+        hasEquip = true;
+    } else if (d.quiver_item >= 0) {
+        auto qit = d.inv.find(d.quiver_item);
+        if (qit != d.inv.end() && !qit->second.name.empty()) {
+            char ql = static_cast<char>(d.quiver_item < 26 ? 'a' + d.quiver_item : 'A' + d.quiver_item - 26);
+            ImGui::TextColored(ImVec4(0.3f, 1.0f, 0.3f, 1.0f), "%c) %s (quivered)", ql, qit->second.name.c_str());
+            hasEquip = true;
+        }
+    }
+
+    // Armour (base_type=2 items not already shown)
+    for (const auto& [slot, item] : d.inv) {
+        if (item.name.empty()) continue;
+        if (item.base_type != 2) continue;
+        if (slot == d.weapon_index || slot == d.offhand_index || slot == d.quiver_item) continue;
+        char al = static_cast<char>(slot < 26 ? 'a' + slot : 'A' + slot - 26);
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%c) %s (worn)", al, item.name.c_str());
+        hasEquip = true;
+    }
+
+    if (!hasEquip)
+        ImGui::TextDisabled("(no equipment)");
+
+    ImGui::Spacing();
+    ImGui::SeparatorText("Full Inventory");
+
+    // Full inventory list
+    ImGui::BeginChild("EquipInvList", ImVec2(0, 0), ImGuiChildFlags_Borders);
+    for (const auto& [slot, item] : d.inv) {
+        if (item.name.empty()) continue;
+        char letter = static_cast<char>(slot < 26 ? 'a' + slot : 'A' + slot - 26);
+        ImGui::Text("%c - %s", letter, item.name.c_str());
+        if (item.count > 1) {
+            ImGui::SameLine();
+            ImGui::Text("x%d", item.count);
+        }
+    }
+    ImGui::EndChild();
 
     ImGui::End();
 }

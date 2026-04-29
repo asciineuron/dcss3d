@@ -7,6 +7,7 @@
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlgpu3.h"
 #include "imguilayouts.hpp"
+#include "WindowManager.hpp"
 #include <SDL3/SDL.h>
 #include "imgui_internal.h"
 #include <SDL3/SDL_main.h>
@@ -58,20 +59,7 @@ std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, Rendere
         isDone = true;
         break;
     case SDL_SCANCODE_ESCAPE:
-        if (key.type == SDL_EVENT_KEY_UP) {
-            bool newRenderUI = !renderer.renderUI();
-            spdlog::debug("before: {}", renderer.renderUI());
-            renderer.setRenderUI(newRenderUI);
-            // When showing UI, show the cursor and disable relative mode
-            if (newRenderUI) {
-                SDL_SetWindowRelativeMouseMode(renderer.window(), false);
-                SDL_ShowCursor();
-            } else {
-                // When hiding UI, re-enable relative mode (automatically hides cursor)
-                SDL_SetWindowRelativeMouseMode(renderer.window(), true);
-            }
-            spdlog::debug("after: {}", renderer.renderUI());
-        }
+        // Escape handled directly in event loop via WindowManager
         break;
     case SDL_SCANCODE_RETURN:
         return std::make_unique<InputTurn>(SDL_SCANCODE_RETURN);
@@ -225,7 +213,7 @@ int main(int argc, char* argv[])
             ImGui::NewFrame();
 
             // Display all ImGui windows — layout management, pin gating, and content
-            displayAllWindows(renderer.renderUI(), player, map, networkManager, renderer, LAYOUT_FILENAME);
+            displayAllWindows(player, map, networkManager, renderer, LAYOUT_FILENAME);
 
             ImGui::Render();
 
@@ -252,27 +240,26 @@ int main(int argc, char* argv[])
             {
                 SDL_Event event;
                 while (SDL_PollEvent(&event)) {
-                    // When overlay is disabled, skip mouse events to ImGui entirely.
+                    // When no UI is showing, skip mouse events to ImGui entirely.
                     // Pinned windows are read-only overlays — no hover, no clicks.
                     bool isMouseEvent = (event.type == SDL_EVENT_MOUSE_MOTION ||
                                         event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
                                         event.type == SDL_EVENT_MOUSE_BUTTON_UP ||
                                         event.type == SDL_EVENT_MOUSE_WHEEL);
-                    if (!isMouseEvent || renderer.renderUI()) {
+                    if (!isMouseEvent || WindowManager::instance().shouldRenderUI()) {
                         ImGui_ImplSDL3_ProcessEvent(&event);
                     }
 
-                    // Always process keyboard events for Escape key, regardless of ImGui capture state
-                    // This ensures we can always toggle the UI overlay even when in relative mouse mode
-                    if (event.type == SDL_EVENT_KEY_UP && event.key.scancode == SDL_SCANCODE_ESCAPE) {
-                        std::unique_ptr<Turn> turn = processInput(event, renderer, player, isDone);
-                        if (turn) {
-                            spdlog::debug("generated turn: {}", turn->asMessage().dump());
-                            turn->playSound(audioManager);
-                            networkManager.sendMessage(turn->asMessage());
-                            break;
-                        }
-                    } else if (!(io.WantCaptureMouse || io.WantCaptureKeyboard)) {
+                    // Mode-toggle keys (Escape, E) — always handled, even when ImGui captures input
+                    if (event.type == SDL_EVENT_KEY_UP
+                        && WindowManager::instance().handleKeyEvent(event.key.scancode, renderer.window())) {
+                        continue;
+                    }
+
+                    // Game input processing: only when WindowManager allows it
+                    // and ImGui is not capturing input
+                    if (WindowManager::instance().shouldProcessGameInput()
+                        && !(io.WantCaptureMouse || io.WantCaptureKeyboard)) {
                         std::unique_ptr<Turn> turn = processInput(event, renderer, player, isDone);
                         if (turn) {
                             spdlog::debug("generated turn: {}", turn->asMessage().dump());
@@ -285,10 +272,10 @@ int main(int argc, char* argv[])
             }
 
             // Process mouse input separately from SDL_PollEvent to reduce overhead.
-            // When UI is fully visible, mouse never controls camera.
-            // When UI is hidden (even with pinned overlay windows visible),
+            // When UI is showing (Overlay/Equipment mode), mouse never controls camera.
+            // When UI is hidden (Normal mode, even with pinned overlay windows visible),
             // mouse always controls camera — pinned windows are read-only.
-            if (!renderer.renderUI()) {
+            if (WindowManager::instance().shouldProcessGameInput()) {
                 std::unique_ptr<Turn> turn = processMouseInput(player);
                 if (turn) {
                     spdlog::debug("generated turn: {}", turn->asMessage().dump());
@@ -298,17 +285,20 @@ int main(int argc, char* argv[])
             }
 
             // NOW update position and generate turn (after input is processed)
-            gameTime.update();
+            // Only process game state updates in Normal mode
+            if (WindowManager::instance().shouldProcessGameInput()) {
+                gameTime.update();
 
-            std::unique_ptr<Turn> turn;
-            turn = player.updatePosition(gameTime, map);
-            if (turn) {
-                spdlog::debug("generated turn: {}", turn->asMessage().dump());
-                turn->playSound(audioManager);
-                networkManager.sendMessage(turn->asMessage());
+                std::unique_ptr<Turn> turn;
+                turn = player.updatePosition(gameTime, map);
+                if (turn) {
+                    spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                    turn->playSound(audioManager);
+                    networkManager.sendMessage(turn->asMessage());
 
-                if (auto* moveTurn = dynamic_cast<MoveTurn*>(turn.get())) {
-                    map.shift(moveTurn->getDirection());
+                    if (auto* moveTurn = dynamic_cast<MoveTurn*>(turn.get())) {
+                        map.shift(moveTurn->getDirection());
+                    }
                 }
             }
 

@@ -62,12 +62,14 @@ bool PinButton(const char* windowName);
 
 // Main window display orchestrator.
 // Handles layout management, pin state gating, and calls individual display functions.
-// Only renders windows that are visible (renderUI == true, or individually pinned).
-void displayAllWindows(bool renderUI, const Player& player, const GameMap& map,
+// Visibility is controlled by WindowManager (mode) plus pin state in Normal mode.
+void displayAllWindows(const Player& player, const GameMap& map,
                        NetworkManager& networkManager, Renderer& renderer,
                        const char* layoutFilename);
 
 void displayPlayer(const Player&);
+
+void displayEquipment(const Player&);
 
 void displayMap(const GameMap&);
 

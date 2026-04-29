@@ -1,5 +1,6 @@
 #include "Renderer.hpp"
 #include "GameMap.hpp"
+#include "WindowManager.hpp"
 #include "imguilayouts.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -116,7 +117,7 @@ Renderer::Renderer()
 void Renderer::doRender(GameMap& map, const Camera& camera)
 {
     // do all rendering-related updates that don't require a command buffer pass first
-    const bool shouldRenderUI = m_renderUI || anyWindowsPinned();
+    const bool shouldRenderUI = WindowManager::instance().shouldRenderUI() || anyWindowsPinned();
     ImDrawData* drawData = shouldRenderUI ? ImGui::GetDrawData() : nullptr;
     // TODO determine even without UI, for now just defaults to false so need menu open to skip rendering...
     const bool isMinimized = shouldRenderUI ? (drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f) : false;

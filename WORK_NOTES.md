@@ -1,6 +1,32 @@
 # Work Notes
 
-## Current Status: Audio System (on `feature/audio-system`)
+## Current Status: Keyboard Menu System (on `feature/keyboard-menus`)
+
+Implemented WindowManager and equipment window. Awaiting playtest.
+
+### Keyboard Menus (uncommitted)
+- **WindowManager**: New singleton class managing window visibility modes (Normal, Overlay, Equipment)
+  - `Normal`: No imgui windows, game active, WASD + mouse camera
+  - `Overlay`: All windows visible (Escape toggle), game input paused
+  - `Equipment`: Only equipment window visible (`e` key toggle), game input paused
+- **Equipment Window**: Extracted from player window's "Inventory Details" child into standalone `displayEquipment()` window
+  - Shows equipped summary (weapon, offhand, quiver, armor) and full inventory list
+  - Removed "Inventory Details" toggle button from player window
+- **`e` key**: Toggles equipment mode — shows only equipment window, pauses game
+- **Escape key**: Exits equipment mode (returns to Normal), or toggles overlay mode
+- **12 unit tests** in `tests/test_window_manager.cpp` (all pass)
+- Layout save/load includes new "equipment" window
+
+**Key Files:**
+- `src/WindowManager.hpp` / `src/WindowManager.cpp`: Mode management singleton
+- `src/imguilayouts.cpp`: `displayEquipment()`, updated `displayAllWindows()` gating
+- `src/imguilayouts.hpp`: `displayEquipment()` declaration
+- `src/main.cpp`: `e`/Escape key handling, mouse mode sync, game input gating via WindowManager
+- `src/Renderer.cpp`: `doRender()` uses `WindowManager::shouldRenderUI()`
+- `tests/test_window_manager.cpp`: 12 unit tests
+- `CMakeLists.txt`: Added new source/test files
+
+## Previous Status: Audio System (on `feature/audio-system`)
 
 AudioManager with footfall + map_update sounds. Awaiting code review.
 
