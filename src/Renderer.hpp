@@ -185,6 +185,10 @@ public:
     void setRenderUI(bool renderUI) { m_renderUI = renderUI; };
     const bool renderUI() const { return m_renderUI; }
 
+    // Set the world-space position of the target cell for highlighting.
+    // w component: 1.0 = enabled, 0.0 = disabled (no cell to highlight).
+    void setTargetHighlight(glm::vec4 targetPos) { m_targetHighlightPos = targetPos; }
+
     // e.g. render_info stuff
 private:
     SDL_Window* m_window;
@@ -212,6 +216,9 @@ private:
 
     // Depth buffer for proper filled polygon rendering
     SDL_GPUTexture* m_depthTexture {};
+
+    // Target highlight position in render coords: x=worldX, y=worldY(0), z=worldZ, w=enabled
+    glm::vec4 m_targetHighlightPos {0.0f, 0.0f, 0.0f, 0.0f};
 
     void pushMapToGPU(const GameMap&, SDL_GPUCommandBuffer*);
     void pushMonsterToGPU(const GameMap&, SDL_GPUCommandBuffer*);

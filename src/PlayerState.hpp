@@ -142,6 +142,12 @@ public:
     void setVelY(float vel_y) { m_velY = vel_y; }
     void scaleVel(float scale) { m_velX *= scale; m_velY *= scale; }
 
+    // Convert camera yaw to one of 8 compass directions (N, NE, E, SE, S, SW, W, NW).
+    Direction getFacingDirection() const;
+
+    // Return the game-map cell adjacent to the player in the facing direction.
+    Pos2<int> getTargetCell() const;
+
 private:
     void handlePlayerMessage(const json& message);
 

@@ -180,6 +180,45 @@ void Player::handlePlayerMessage(const json& message)
                   m_data.quiver_item, m_data.quiver_desc, m_data.unarmed_attack);
 }
 
+Direction Player::getFacingDirection() const
+{
+    // theta ranges [0, 2π). Divide into 8 π/4 sectors, offset by π/8
+    // so sectors are centered on compass directions.
+    // Camera look: theta=0→+X(East), pi/2→-Z(North), pi→-X(West), 3pi/2→+Z(South)
+    const float sector = pi_v<float> / 8.0f;  // π/8
+    float t = m_camera.theta;
+
+    using enum Direction;
+    if (t < sector || t >= 15.0f * sector)
+        return East;
+    if (t < 3.0f * sector)
+        return NorthEast;
+    if (t < 5.0f * sector)
+        return North;
+    if (t < 7.0f * sector)
+        return NorthWest;
+    if (t < 9.0f * sector)
+        return West;
+    if (t < 11.0f * sector)
+        return SouthWest;
+    if (t < 13.0f * sector)
+        return South;
+    return SouthEast;
+}
+
+Pos2<int> Player::getTargetCell() const
+{
+    Direction dir = getFacingDirection();
+    int dx = 0, dy = 0;
+    // Game coordinate offsets: North = -y, South = +y, East = +x, West = -x
+    // (same convention as GameMap::shift)
+    if (dir & North) dy -= 1;
+    if (dir & South) dy += 1;
+    if (dir & East)  dx += 1;
+    if (dir & West)  dx -= 1;
+    return { m_data.pos_x + dx, m_data.pos_y + dy };
+}
+
 static float wrap(float x, float min, float max)
 {
     if (min > max)
