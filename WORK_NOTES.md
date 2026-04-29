@@ -1,8 +1,28 @@
 # Work Notes
 
-## Current Status: Map display fix + async Python relay (uncommitted)
+## Current Status: Audio System (on `feature/audio-system`)
 
-Ready for playtest.
+AudioManager with footfall + map_update sounds. Awaiting code review.
+
+### Audio System (uncommitted)
+- Created `AudioManager` subclass of `MessageHandler`
+- `handleMessage()` triggers `"map_update"` sound on `"msg": "map"` server messages
+- `onPlayerAction(const Turn&)` plays `"footfall"` for `MoveTurn`
+- Integrated at all 4 `networkManager.sendMessage()` call sites in `main.cpp`
+- Registered in handlerConfig for `"map"` messages
+- Uses SDL3 audio: `SDL_OpenAudioDeviceStream` + `SDL_PutAudioStreamData` + `SDL_LoadWAV`
+- Sound files: `resources/sounds/footfall.wav` (percussive step) + `resources/sounds/map_update.wav` (shimmer ping)
+- WAVs cached by name after first load
+- 7 unit tests (all pass), 19 assertions
+- Testable via `triggeredSounds()` / `clearTriggeredSounds()`
+
+**Key Files:**
+- `src/AudioManager.hpp` / `src/AudioManager.cpp`: Audio manager implementation
+- `src/main.cpp`: Integration at sendMessage call sites + handlerConfig registration
+- `tests/test_audio_manager.cpp`: Unit tests
+- `resources/sounds/footfall.wav` + `resources/sounds/map_update.wav`: Sound assets
+
+## Recent Work
 
 ### Map Display on Reconnect Fix (2026-04-28)
 - **Problem**: After login+play, map required 2-3 space bar presses to appear. Each press advanced the game turn.
@@ -16,7 +36,7 @@ Ready for playtest.
 - Two concurrent tasks: `cpp_to_dcss` (read C++ → forward to websocket) and `dcss_to_cpp` (read websocket → forward to C++)
 - Reconnect support and file-based test mode preserved
 
-### Previous: ImGui Pin & Mouse Fix
+### ImGui Pin & Mouse Fix
 - Fixed mouse input: camera no longer moves when ImGui overlay is visible
 - Added reusable `PinButton()` per-window toggle — pinned windows stay visible as read-only overlays when overlay is dismissed
 - Refactored window display logic from `main.cpp` into `displayAllWindows()` in `imguilayouts.cpp`

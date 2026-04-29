@@ -1,4 +1,5 @@
 #include "MessageQueue.hpp"
+#include "AudioManager.hpp"
 #include "PlayerState.hpp"
 #include "Renderer.hpp"
 #include "Turn.hpp"
@@ -181,10 +182,11 @@ int main(int argc, char* argv[])
         GameMap map;
         Renderer renderer; // imgui + SDL setup too
         NetworkManager networkManager(std::format("{}dcss3d.sock", SDL_GetBasePath()));
+        AudioManager audioManager;
         ImGuiIO& io = ImGui::GetIO();
         // could add e.g. logger
 
-        handlerConfig responseHandlers = { { "map", { player, gameTime, map } }, { "player", { player } } };
+        handlerConfig responseHandlers = { { "map", { player, gameTime, map, audioManager } }, { "player", { player } } };
 
         // Set up window layout callback for save functionality
         setWindowLayoutCallback(getWindowLayoutCallback);
@@ -245,6 +247,7 @@ int main(int argc, char* argv[])
                         std::unique_ptr<Turn> turn = processInput(event, renderer, player, isDone);
                         if (turn) {
                             spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                            audioManager.onPlayerAction(*turn);
                             networkManager.sendMessage(turn->asMessage());
                             break;
                         }
@@ -252,6 +255,7 @@ int main(int argc, char* argv[])
                         std::unique_ptr<Turn> turn = processInput(event, renderer, player, isDone);
                         if (turn) {
                             spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                            audioManager.onPlayerAction(*turn);
                             networkManager.sendMessage(turn->asMessage());
                             break;
                         }
@@ -267,6 +271,7 @@ int main(int argc, char* argv[])
                 std::unique_ptr<Turn> turn = processMouseInput(player);
                 if (turn) {
                     spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                    audioManager.onPlayerAction(*turn);
                     networkManager.sendMessage(turn->asMessage());
                 }
             }
@@ -278,6 +283,7 @@ int main(int argc, char* argv[])
             turn = player.updatePosition(gameTime, map);
             if (turn) {
                 spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                audioManager.onPlayerAction(*turn);
                 networkManager.sendMessage(turn->asMessage());
 
                 if (auto* moveTurn = dynamic_cast<MoveTurn*>(turn.get())) {

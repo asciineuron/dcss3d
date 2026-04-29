@@ -30,6 +30,9 @@ target_sources(dcss3d_obj PRIVATE
 	src/imguilayouts.hpp
 	src/imguilayouts.cpp
 
+	src/AudioManager.hpp
+	src/AudioManager.cpp
+
 	src/debug.hpp
 	src/debug.cpp
 
@@ -210,9 +213,11 @@ target_sources(dcss3d_tests PRIVATE
     tests/main.cpp
     tests/test_game_map.cpp
     tests/test_player_state.cpp
+    tests/test_audio_manager.cpp
     src/GameMap.cpp
     src/Turn.cpp
     src/MessageQueue.cpp
+    src/AudioManager.cpp
     src/debug.cpp
 )
 
