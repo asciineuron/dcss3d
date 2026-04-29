@@ -1,10 +1,22 @@
 # Work Notes
 
-## Current Status: ImGui Pin & Mouse Fix (uncommitted, on `fix/imgui-pin-and-mouse`)
+## Current Status: Map display fix + async Python relay (uncommitted)
 
 Ready for playtest.
 
-### In Progress: ImGui Pin Button & Mouse Input Fix
+### Map Display on Reconnect Fix (2026-04-28)
+- **Problem**: After login+play, map required 2-3 space bar presses to appear. Each press advanced the game turn.
+- **Root cause**: The server's `add_watcher` for the primary player calls `send_message("spectator_joined")` to trigger `_send_everything()` → `_send_map(true)`, but it happens *before* the process connection opens, so `self.conn.open` is false and the message is silently dropped. Player data works because `_send_player()` has its own `_state_ever_synced` guard; the map has no equivalent.
+- **Fix**: `main.cpp` sends `{"msg":"spectator_joined"}` after receiving `"game_started"`, when the connection is guaranteed open.
+
+### Async Python Relay Rewrite
+- Replaced sync `socketserver` + `select.poll()` with `asyncio` + `websockets.asyncio`
+- Eliminates polling timeout workaround — asyncio event loop handles all I/O
+- C++ side unchanged; still connects via sync Unix socket
+- Two concurrent tasks: `cpp_to_dcss` (read C++ → forward to websocket) and `dcss_to_cpp` (read websocket → forward to C++)
+- Reconnect support and file-based test mode preserved
+
+### Previous: ImGui Pin & Mouse Fix
 - Fixed mouse input: camera no longer moves when ImGui overlay is visible
 - Added reusable `PinButton()` per-window toggle — pinned windows stay visible as read-only overlays when overlay is dismissed
 - Refactored window display logic from `main.cpp` into `displayAllWindows()` in `imguilayouts.cpp`

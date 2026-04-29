@@ -257,7 +257,14 @@ void GameMap::cleanMonsterTable()
 
 void GameMap::updateMap(const json& message)
 {
+    // Prevent a second "clear" map (e.g. from spectator_joined's
+    // _send_everything() after we've already received the real map)
+    // from wiping out existing map data.
     if (message.contains("clear") && message["clear"]) {
+        if (!m_map.empty()) {
+            spdlog::debug("Skipping clear map — already have {} tiles", m_map.size());
+            return;
+        }
         m_map.clear();
         m_monsters.clear();
         m_monsterTable.clear();

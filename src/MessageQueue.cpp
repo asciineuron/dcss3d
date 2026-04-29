@@ -159,10 +159,6 @@ std::vector<json> parseResponseMessages(std::span<const char> response)
         messageList.push_back(std::move(responseMessages));
     }
 
-    // spdlog::debug("parseResponseMessages() messageList:");
-    // for (const auto& message : messageList) {
-    //     spdlog::debug("{}", message.dump());
-    // }
     return messageList;
 }
 
