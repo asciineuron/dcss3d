@@ -118,7 +118,6 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
     // do all rendering-related updates that don't require a command buffer pass first
     const bool shouldRenderUI = WindowManager::instance().shouldRenderUI() || anyWindowsPinned();
     ImDrawData* drawData = shouldRenderUI ? ImGui::GetDrawData() : nullptr;
-    // TODO determine even without UI, for now just defaults to false so need menu open to skip rendering...
     const bool isMinimized = shouldRenderUI ? (drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f) : false;
 
     // TODO instead have MapDisplacedBufferedModel do all the binding itself? and just call its render func which does this?

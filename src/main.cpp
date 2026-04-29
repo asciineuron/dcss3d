@@ -54,9 +54,7 @@ std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, Rendere
         return std::make_unique<MoveTurn>(Here);
         break;
     case SDL_SCANCODE_Q:
-        // TODO 2-26 now not fully quitting with q, need ctrl-c, probably related to rendering freeze bug
-        spdlog::debug("received q key");
-        isDone = true;
+        // Handled in event loop (always-active) — unreachable here
         break;
     case SDL_SCANCODE_ESCAPE:
         // Escape handled directly in event loop via WindowManager
@@ -182,14 +180,14 @@ int main(int argc, char* argv[])
         ImGuiIO& io = ImGui::GetIO();
         // could add e.g. logger
 
-        handlerConfig responseHandlers = { { "map", { player, gameTime, map, audioManager } }, { "player", { player } }, { "game_ended", { audioManager } }, { "game_started", { WindowManager::instance() } } };
+        handlerConfig responseHandlers = { { "map", { player, gameTime, map, audioManager, WindowManager::instance() } }, { "player", { player } }, { "game_ended", { audioManager } }, { "game_started", { WindowManager::instance() } }, { "login_success", { WindowManager::instance() } }, { "ui-push", { WindowManager::instance() } } };
 
         // Set up window layout callback for save functionality
         setWindowLayoutCallback(getWindowLayoutCallback);
 
         bool isDone = false;
         bool sentSpectatorJoin = false;
-        while (!isDone) {
+        while (!isDone && !WindowManager::instance().isQuitConfirmed()) {
             std::vector<json> responses = networkManager.getNewMessages();
             if (!responses.empty()) {
                 // Workaround: the server's add_watcher for the primary player happens before
@@ -253,6 +251,12 @@ int main(int argc, char* argv[])
                     // Mode-toggle keys (Escape, E) — always handled, even when ImGui captures input
                     if (event.type == SDL_EVENT_KEY_UP
                         && WindowManager::instance().handleKeyEvent(event.key.scancode, renderer.window())) {
+                        continue;
+                    }
+
+                    // Quit key (Q) — always handled regardless of mode
+                    if (event.type == SDL_EVENT_KEY_UP && event.key.scancode == SDL_SCANCODE_Q) {
+                        WindowManager::instance().enterQuitConfirm(renderer.window());
                         continue;
                     }
 

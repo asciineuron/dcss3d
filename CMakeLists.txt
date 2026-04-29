@@ -34,6 +34,9 @@ target_sources(dcss3d_obj PRIVATE
 	src/WindowManager.hpp
 	src/WindowManager.cpp
 
+	src/CharacterSelect.hpp
+	src/CharacterSelect.cpp
+
 	src/AudioManager.hpp
 	src/AudioManager.cpp
 
@@ -219,7 +222,9 @@ target_sources(dcss3d_tests PRIVATE
     tests/test_player_state.cpp
     tests/test_audio_manager.cpp
     tests/test_window_manager.cpp
+    tests/test_character_select.cpp
     src/WindowManager.cpp
+    src/CharacterSelect.cpp
     src/GameMap.cpp
     src/Turn.cpp
     src/MessageQueue.cpp

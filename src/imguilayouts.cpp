@@ -5,6 +5,7 @@
 #include "debug.hpp"
 #include "imgui.h"
 #include "imgui_stdlib.h"
+#include <algorithm>
 #include <spdlog/spdlog.h>
 #include <format>
 #include <fstream>
@@ -123,6 +124,55 @@ void displayAllWindows(const Player& player, const GameMap& map,
                        NetworkManager& networkManager, Renderer& renderer,
                        const char* layoutFilename)
 {
+    WindowManager& wm = WindowManager::instance();
+
+    // Quit confirmation popup lifecycle.
+    // OpenPopup on entry, CloseCurrentPopup on exit, BeginPopupModal only while active.
+    {
+        static WindowManager::Mode s_lastMode = WindowManager::Mode::Normal;
+
+        // Entering QuitConfirm: open the popup
+        if (wm.getMode() == WindowManager::Mode::QuitConfirm
+            && s_lastMode != WindowManager::Mode::QuitConfirm) {
+            ImGui::OpenPopup("Quit Game?");
+        }
+
+        // Leaving QuitConfirm: close the popup (handles Escape closing it via ImGui)
+        if (s_lastMode == WindowManager::Mode::QuitConfirm
+            && wm.getMode() != WindowManager::Mode::QuitConfirm) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        s_lastMode = wm.getMode();
+    }
+
+    const bool inQuitConfirm = (wm.getMode() == WindowManager::Mode::QuitConfirm);
+    if (inQuitConfirm) {
+        if (ImGui::BeginPopupModal("Quit Game?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Are you sure you want to quit?");
+            ImGui::Spacing();
+            if (ImGui::Button("Yes, Quit", ImVec2(120, 0))) {
+                ImGui::CloseCurrentPopup();
+                wm.confirmQuit();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                ImGui::CloseCurrentPopup();
+                wm.cancelQuitConfirm(renderer.window());
+            }
+            ImGui::EndPopup();
+        }
+        return;  // block other windows
+    }
+
+    // Character select takes priority during Login phase
+    if (const auto* choice = wm.getCharacterSelectData()) {
+        characterSelectWindow(*choice, networkManager);
+        // Still show network window for status
+        networkMenu(networkManager);
+        return;
+    }
+
     const bool shouldReset = windowLayoutNeedsReset();
     const WindowLayout* pendingLayout = getPendingLayout();
     const size_t pendingLayoutCount = getPendingLayoutCount();
@@ -142,7 +192,6 @@ void displayAllWindows(const Player& player, const GameMap& map,
         }
     };
 
-    WindowManager& wm = WindowManager::instance();
     const bool normalMode = (wm.getMode() == WindowManager::Mode::Normal);
 
     // Helper macro for window visibility gating:
@@ -783,11 +832,25 @@ void networkMenu(NetworkManager& net)
     PinButton("network");
     ImGui::Spacing();
 
+    WindowManager& wm = WindowManager::instance();
+
     // Connection status indicator
     if (net.isConnected()) {
         ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Connected");
     } else {
         ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "Disconnected");
+    }
+
+    // Login status
+    if (wm.isLoggedIn()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), " | Logged In");
+    }
+
+    // Game status
+    if (wm.isGameConnected()) {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.3f, 0.8f, 1.0f, 1.0f), " | Game Running");
     }
 
     if (ImGui::Button("Reconnect")) {
@@ -796,21 +859,27 @@ void networkMenu(NetworkManager& net)
 
     ImGui::Separator();
 
+    // Login button — always available (needed first)
     if (ImGui::Button("send network login")) {
         net.sendMessage(loginMessage("asciineuron", "password"));
     }
+
+    // Game start — only enabled after login, before game is running
+    const bool canStartGame = wm.isLoggedIn() && !wm.isGameConnected();
+
+    if (!canStartGame)
+        ImGui::BeginDisabled();
 
     // TODO combine listbox with input text to give dropdown presets
     static std::string gameID = "dcss-web-trunk"; // defaultGameID;
     ImGui::InputText("game id", &gameID);
 
-    if (ImGui::Button("send network play")) {
+    if (ImGui::Button("Create Character / Resume Game")) {
         net.sendMessage(playMessage(gameID));
     }
 
-    if (ImGui::Button("send character select")) {
-        net.chooseCharacter();
-    }
+    if (!canStartGame)
+        ImGui::EndDisabled();
 
     // log of network messages:
     if (ImGui::CollapsingHeader("Message History")) {
@@ -863,6 +932,138 @@ void renderMenu(Renderer& renderer)
         skipCollisionCheck = !skipCollisionCheck;
 
     ImGui::Text("render count: %llu", renderer.renderCount());
+
+    ImGui::End();
+}
+
+// --- Character selection window ---
+
+void characterSelectWindow(const NewgameChoice& choice, NetworkManager& net)
+{
+    const char* phaseLabel = "Species";
+    switch (choice.phase) {
+    case CharSelectPhase::Species:    phaseLabel = "Species";    break;
+    case CharSelectPhase::Background: phaseLabel = "Background"; break;
+    case CharSelectPhase::Weapon:     phaseLabel = "Weapon";     break;
+    default: break;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(500, 450), ImGuiCond_FirstUseEver);
+    ImGui::Begin(std::format("Choose {}", phaseLabel).c_str());
+
+    // Title (strip DCSS color tags like <brown>, <lightgreen>)
+    if (!choice.title.empty()) {
+        ImGui::TextWrapped("%s", stripColorTags(choice.title).c_str());
+        ImGui::Separator();
+    }
+
+    // Main buttons — rendered in row groups by y-coordinate
+    if (!choice.mainButtons.empty()) {
+        // Group buttons by row (y coordinate), preserve x-order within each row
+        int maxY = 0;
+        for (const auto& btn : choice.mainButtons)
+            maxY = std::max(maxY, btn.y);
+
+        for (int row = 0; row <= maxY; ++row) {
+            // Collect buttons in this row, sorted by x
+            std::vector<const ChoiceButton*> rowButtons;
+            for (const auto& btn : choice.mainButtons)
+                if (btn.y == row)
+                    rowButtons.push_back(&btn);
+
+            if (rowButtons.empty())
+                continue;
+
+            std::sort(rowButtons.begin(), rowButtons.end(),
+                      [](const ChoiceButton* a, const ChoiceButton* b) {
+                          return a->x < b->x;
+                      });
+
+            for (size_t i = 0; i < rowButtons.size(); ++i) {
+                const auto& btn = *rowButtons[i];
+
+                // Skip non-interactive grid labels (buttons with empty hotkey)
+                if (btn.hotkey == '\0') {
+                    ImGui::TextDisabled("%s", stripColorTags(btn.label).c_str());
+                    if (i + 1 < rowButtons.size())
+                        ImGui::SameLine();
+                    continue;
+                }
+
+                // Colour by highlight: 0=bad(red), 1=normal(white), 2=good(green)
+                if (btn.highlightColour == 2)
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.2f, 1.0f, 0.2f, 1.0f));
+                else if (btn.highlightColour == 0)
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.3f, 0.3f, 1.0f));
+                else
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+                // Button label: strip tags
+                std::string btnLabel = stripColorTags(btn.label);
+                if (btnLabel.empty())
+                    btnLabel = std::format("[{}]", btn.hotkey);
+
+                if (ImGui::Button(btnLabel.c_str())) {
+                    spdlog::info("Character select: sending input '{}' for '{}'",
+                                 btn.hotkey, btn.label);
+                    json inputMsg;
+                    inputMsg["msg"] = "input";
+                    inputMsg["text"] = std::string(1, btn.hotkey);
+                    net.sendMessage(inputMsg);
+                }
+
+                ImGui::PopStyleColor();
+
+                // Description tooltip (strip tags)
+                if (!btn.description.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(400.0f);
+                    ImGui::TextWrapped("%s", stripColorTags(btn.description).c_str());
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndTooltip();
+                }
+
+                if (i + 1 < rowButtons.size())
+                    ImGui::SameLine();
+            }
+        }
+    }
+
+    // Sub buttons — Recommended, Random, etc.
+    if (!choice.subButtons.empty()) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        for (const auto& btn : choice.subButtons) {
+            if (btn.hotkey == '\0') continue;
+
+            if (btn.highlightColour == 2)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f, 0.5f, 0.1f, 1.0f));
+
+            std::string label = stripColorTags(btn.label);
+            if (ImGui::Button(label.c_str())) {
+                spdlog::info("Character select: sending input '{}' for '{}'",
+                             btn.hotkey, btn.label);
+                json inputMsg;
+                inputMsg["msg"] = "input";
+                inputMsg["text"] = std::string(1, btn.hotkey);
+                net.sendMessage(inputMsg);
+            }
+
+            if (btn.highlightColour == 2)
+                ImGui::PopStyleColor();
+
+            if (!btn.description.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+                ImGui::BeginTooltip();
+                ImGui::PushTextWrapPos(400.0f);
+                ImGui::TextWrapped("%s", stripColorTags(btn.description).c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::EndTooltip();
+            }
+
+            ImGui::SameLine();
+        }
+        ImGui::NewLine();
+    }
 
     ImGui::End();
 }

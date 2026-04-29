@@ -39,7 +39,6 @@ public:
     const auto& sendHistory() const {return m_sendHistory; };
     // TODO: some way to view these unified/interleaved by timestamps?
 
-    void chooseCharacter(std::array<char,3> speciesBackgroundWeapon = {'b', 'i', 'c'});
     bool isConnected() const { return m_isConnected; }
     void reconnect();
 
@@ -63,9 +62,6 @@ private:
     void pollLoop();
 
     // TODO: implement these
-    void playGame();
-    // add subfunctions as needed
-
 };
 
 // using handlerConfig = std::unordered_map<std::string, std::vector<MessageHandler*>>;

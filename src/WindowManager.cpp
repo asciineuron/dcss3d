@@ -39,11 +39,49 @@ void WindowManager::toggleEquipment()
     }
 }
 
+static void syncMouseMode(SDL_Window* window, bool useRelative)
+{
+    if (!window) return;
+    if (useRelative) {
+        SDL_SetWindowRelativeMouseMode(window, true);
+    } else {
+        SDL_SetWindowRelativeMouseMode(window, false);
+        SDL_ShowCursor();
+    }
+}
+
+void WindowManager::enterQuitConfirm(SDL_Window* window)
+{
+    if (m_mode != Mode::QuitConfirm) {
+        m_previousMode = m_mode;
+        setMode(Mode::QuitConfirm);
+        syncMouseMode(window, false);  // absolute mouse for button clicks
+    }
+}
+
+void WindowManager::cancelQuitConfirm(SDL_Window* window)
+{
+    if (m_mode == Mode::QuitConfirm) {
+        setMode(m_previousMode);
+        syncMouseMode(window, shouldUseRelativeMouse());
+    }
+}
+
+void WindowManager::confirmQuit()
+{
+    m_quitConfirmed = true;
+}
+
+bool WindowManager::isQuitConfirmed() const
+{
+    return m_quitConfirmed;
+}
+
 bool WindowManager::shouldRenderUI() const
 {
-    // In any mode except Normal, we render ImGui.
-    // In Normal mode, pinned windows may still request rendering.
-    return m_mode != Mode::Normal;
+    // Render ImGui in any mode except Normal (and even then, for pinned windows).
+    // QuitConfirm always needs the modal popup.
+    return m_mode != Mode::Normal || m_mode == Mode::QuitConfirm;
 }
 
 bool WindowManager::shouldProcessGameInput() const
@@ -73,32 +111,82 @@ bool WindowManager::isVisible(const char* windowName) const
     case Mode::Normal:
         // No windows visible (pins handled separately by caller)
         return false;
+    case Mode::QuitConfirm:
+        // Only the quit confirmation modal is shown — no regular windows
+        return false;
     }
     return false;
 }
 
 bool WindowManager::isGameConnected() const
 {
-    return m_mode != Mode::Login;
+    // In QuitConfirm, use the mode we'll return to on cancel.
+    // This keeps the skybox visible when quitting from an active game
+    // but hidden when quitting from the pre-game Login screen.
+    Mode effectiveMode = (m_mode == Mode::QuitConfirm) ? m_previousMode : m_mode;
+    return effectiveMode != Mode::Login;
+}
+
+bool WindowManager::isLoggedIn() const
+{
+    return m_isLoggedIn;
 }
 
 void WindowManager::handleMessage(const json& message)
 {
-    // Transition from Login to Overlay when the game process starts.
-    // login_success only authenticates — character selection happens before game_started.
-    // Once game_started arrives, reveal the skybox and all UI windows.
-    if (m_mode == Mode::Login) {
-        auto msg = message.find("msg");
-        if (msg != message.end() && msg->get<std::string>() == "game_started") {
-            setMode(Mode::Overlay);
+    auto msg = message.find("msg");
+    if (msg == message.end())
+        return;
+
+    const std::string msgType = msg->get<std::string>();
+
+    // Track login state
+    if (msgType == "login_success") {
+        m_isLoggedIn = true;
+        return;
+    }
+
+    // Game process started — transition to Overlay; skybox and UI become visible.
+    if (m_mode == Mode::Login && msgType == "game_started") {
+        m_characterSelectData.reset();
+        setMode(Mode::Overlay);
+        return;
+    }
+
+    // Character selection complete / game producing map data.
+    // Clear the selection UI so only normal game windows are shown.
+    if (msgType == "map") {
+        m_characterSelectData.reset();
+        return;
+    }
+
+    // Capture newgame-choice ui-push for the character select window.
+    if (msgType == "ui-push" && message.value("type", "") == "newgame-choice") {
+        auto choice = parseNewgameChoice(message);
+        if (choice.isValid) {
+            setCharacterSelectData(choice);
         }
     }
+}
+
+void WindowManager::setCharacterSelectData(const NewgameChoice& data)
+{
+    m_characterSelectData = data;
+}
+
+const NewgameChoice* WindowManager::getCharacterSelectData() const
+{
+    return m_characterSelectData.has_value() ? &*m_characterSelectData : nullptr;
+}
+
+void WindowManager::clearCharacterSelectData()
+{
+    m_characterSelectData.reset();
 }
 
 bool WindowManager::handleKeyEvent(SDL_Scancode scancode, SDL_Window* window)
 {
     // In Login mode, mode-toggle keys are consumed but do nothing.
-    // The user must complete login before toggling UI modes.
     if (m_mode == Mode::Login) {
         switch (scancode) {
         case SDL_SCANCODE_ESCAPE:
@@ -107,6 +195,15 @@ bool WindowManager::handleKeyEvent(SDL_Scancode scancode, SDL_Window* window)
         default:
             return false;
         }
+    }
+
+    // In QuitConfirm mode, Escape cancels the quit dialog.
+    if (m_mode == Mode::QuitConfirm) {
+        if (scancode == SDL_SCANCODE_ESCAPE) {
+            cancelQuitConfirm(window);
+            return true;
+        }
+        return false;
     }
 
     switch (scancode) {
@@ -125,13 +222,6 @@ bool WindowManager::handleKeyEvent(SDL_Scancode scancode, SDL_Window* window)
     }
 
     // Sync mouse mode to the new WindowManager state
-    if (window) {
-        if (shouldUseRelativeMouse()) {
-            SDL_SetWindowRelativeMouseMode(window, true);
-        } else {
-            SDL_SetWindowRelativeMouseMode(window, false);
-            SDL_ShowCursor();
-        }
-    }
+    syncMouseMode(window, shouldUseRelativeMouse());
     return true;
 }

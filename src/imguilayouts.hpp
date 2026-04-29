@@ -1,8 +1,9 @@
 #pragma once
+#include "CharacterSelect.hpp"
+#include "PlayerState.hpp"
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
-#include "PlayerState.hpp"
 
 // Window layout data: position and size
 struct WindowLayout {
@@ -74,6 +75,10 @@ void displayEquipment(const Player&);
 void displayMap(const GameMap&);
 
 void networkMenu(NetworkManager&);
+
+// Character selection window — shown when a newgame-choice ui-push arrives.
+// Renders species/background/weapon options as clickable buttons.
+void characterSelectWindow(const NewgameChoice& choice, NetworkManager& net);
 
 void renderMenu(Renderer&);
 

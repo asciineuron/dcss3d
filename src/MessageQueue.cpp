@@ -255,41 +255,6 @@ void NetworkManager::pollLoop()
     }
 }
 
-void NetworkManager::playGame()
-{
-    sendMessage(loginMessage("asciineuron", "password"));
-
-    sendMessage(playMessage());
-
-    chooseCharacter();
-}
-
-void NetworkManager::chooseCharacter(std::array<char, 3> speciesBackgroundWeapon)
-{
-    bool didSetSpecies = false;
-    bool didSetBackground = false;
-    bool didSetWeapon = false;
-
-    while (!(didSetSpecies && didSetBackground && didSetWeapon)) {
-        for (json message : getNewMessages()) {
-            // TODO what happens if we get an incorrect message here?? e.g. out of order
-            // for now let's assume that *never* happens once we've worked out bugs
-            if (message["msg"] == "ui-push") {
-                if (message["type"] == "species") {
-                    sendMessage({ { "msg", "input" }, { "text", speciesBackgroundWeapon[0] } });
-                    didSetSpecies = true;
-                } else if (message["type"] == "background") {
-                    sendMessage({ { "msg", "input" }, { "text", speciesBackgroundWeapon[1] } });
-                    didSetBackground = true;
-                } else if (message["type"] == "weapon") {
-                    sendMessage({ { "msg", "input" }, { "text", speciesBackgroundWeapon[2] } });
-                    didSetWeapon = true;
-                }
-            }
-        }
-    }
-}
-
 std::vector<json> NetworkManager::getNewMessages()
 {
     std::vector<json> poppedMessages {};

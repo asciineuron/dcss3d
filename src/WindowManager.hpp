@@ -1,7 +1,9 @@
 #pragma once
 
+#include "CharacterSelect.hpp"
 #include "MessageQueue.hpp"
 #include <SDL3/SDL_scancode.h>
+#include <optional>
 
 struct SDL_Window;
 
@@ -16,6 +18,7 @@ public:
         Normal,      // No imgui windows, game active (relative mouse)
         Overlay,     // All windows visible, game input paused (absolute mouse)
         Equipment,   // Only equipment window, game input paused (absolute mouse)
+        QuitConfirm, // Quit confirmation modal, game input paused (absolute mouse)
     };
 
     static WindowManager& instance();
@@ -26,6 +29,14 @@ public:
     // Convenience toggles
     void toggleOverlay();     // Normal <-> Overlay
     void toggleEquipment();   // Normal <-> Equipment
+
+    // Enter quit confirmation mode. Saves previous mode and syncs mouse.
+    void enterQuitConfirm(SDL_Window* window);
+    // Cancel quit — revert to previous mode and sync mouse.
+    void cancelQuitConfirm(SDL_Window* window);
+    // Confirm quit — set flag for main loop to exit.
+    void confirmQuit();
+    bool isQuitConfirmed() const;
 
     // Whether any imgui UI should be rendered this frame
     bool shouldRenderUI() const;
@@ -48,10 +59,24 @@ public:
     // False only in Login mode — gates skybox rendering.
     bool isGameConnected() const;
 
-    // MessageHandler: responds to "login_success" by transitioning Login -> Overlay.
+    // Whether login_success has been received (authentication complete).
+    bool isLoggedIn() const;
+
+    // MessageHandler: responds to login_success, game_started, map, and
+    // newgame-choice ui-push messages.
     void handleMessage(const json& message) override;
+
+    // --- Character select state ---
+    // Set when a newgame-choice ui-push arrives; cleared on game_started.
+    void setCharacterSelectData(const NewgameChoice& data);
+    const NewgameChoice* getCharacterSelectData() const;
+    void clearCharacterSelectData();
 
 private:
     WindowManager() = default;
     Mode m_mode = Mode::Login;
+    Mode m_previousMode = Mode::Normal;
+    bool m_isLoggedIn = false;
+    bool m_quitConfirmed = false;
+    std::optional<NewgameChoice> m_characterSelectData;
 };
