@@ -13,6 +13,8 @@ enum class MapType {
     Wall,
     Floor,
     Unexplored,
+    Water,
+    Lava,
     Other,
 };
 

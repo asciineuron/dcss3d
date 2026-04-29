@@ -51,6 +51,8 @@ void AudioManager::handleMessage(const json& message)
 {
     if (message.contains("msg") && message["msg"] == "map") {
         triggerSound("map_update");
+    } else if (message.contains("msg") && message["msg"] == "game_ended") {
+        triggerSound("game_over");
     }
 }
 

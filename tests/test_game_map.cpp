@@ -6,7 +6,9 @@ TEST_CASE("MapType enum has expected values", "[GameMap]")
     REQUIRE(static_cast<int>(MapType::Wall) == 0);
     REQUIRE(static_cast<int>(MapType::Floor) == 1);
     REQUIRE(static_cast<int>(MapType::Unexplored) == 2);
-    REQUIRE(static_cast<int>(MapType::Other) == 3);
+    REQUIRE(static_cast<int>(MapType::Water) == 3);
+    REQUIRE(static_cast<int>(MapType::Lava) == 4);
+    REQUIRE(static_cast<int>(MapType::Other) == 5);
 }
 
 TEST_CASE("Tile default constructor sets Other type", "[GameMap]")

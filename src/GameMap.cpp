@@ -64,13 +64,17 @@ glm::vec4 mapTypeToColor(MapType type)
     case Unexplored:
         return { 0.5f, 0.5f, 0.5f, 1.0f };
         break;
+    case Water:
+        return { 0.0f, 0.3f, 0.8f, 1.0f };
+        break;
+    case Lava:
+        return { 0.8f, 0.3f, 0.0f, 1.0f };
+        break;
     case Other:
         return { 0.0f, 0.5f, 0.5f, 1.0f };
         break;
-    default:
-        throw std::logic_error("invalid MapType specified");
-        break;
     }
+    return { 0.4f, 0.1f, 0.6f, 0.7f }; // fallback safety net
 }
 
 // use for future trial Pos2, don't need to do direction checking, just proximity
@@ -130,19 +134,43 @@ void GameMap::shift(Direction moveDir)
     m_didRender = false;
 }
 
+// Map crawl's map_feature enum (map-feature.h) to our MapType.
+// Reference: MF_UNSEEN=0, MF_FLOOR=1, MF_WALL=2, MF_MAP_FLOOR=3,
+// MF_MAP_WALL=4, MF_DOOR=5, MF_ITEM=6, MF_MONS_*=7-11,
+// MF_STAIR_*=12-14, MF_FEATURE=15, MF_WATER=16, MF_LAVA=17,
+// MF_TRAP=18, MF_EXCL_*=19-20, MF_PLAYER=21, MF_DEEP_WATER=22,
+// MF_PORTAL=23, MF_TRANSPORTER*=24-25, MF_EXPLORE_HORIZON=26.
 MapType mapTypeFromMF(int mf)
 {
     using enum MapType;
     switch (mf) {
-    case 1:
-        return Floor;
-        break;
-    case 2:
-        return Wall;
-        break;
-    case 26:
-        return Unexplored;
-        break;
+    case  0: return Unexplored;   // MF_UNSEEN
+    case  1: return Floor;         // MF_FLOOR
+    case  2: return Wall;          // MF_WALL
+    case  3: return Floor;         // MF_MAP_FLOOR (known explored floor)
+    case  4: return Wall;          // MF_MAP_WALL (known explored wall)
+    case  5: return Floor;         // MF_DOOR (treat as floor — door opens)
+    case  6: return Floor;         // MF_ITEM (treat as floor — item on ground)
+    case  7: return Floor;         // MF_MONS_FRIENDLY
+    case  8: return Floor;         // MF_MONS_PEACEFUL
+    case  9: return Floor;         // MF_MONS_NEUTRAL
+    case 10: return Floor;         // MF_MONS_HOSTILE
+    case 11: return Floor;         // MF_MONS_NO_EXP
+    case 12: return Floor;         // MF_STAIR_UP (treat as floor — stairs)
+    case 13: return Floor;         // MF_STAIR_DOWN
+    case 14: return Floor;         // MF_STAIR_BRANCH
+    case 15: return Other;         // MF_FEATURE (trap, portal, etc.)
+    case 16: return Water;         // MF_WATER
+    case 17: return Lava;          // MF_LAVA
+    case 18: return Other;         // MF_TRAP
+    case 19: return Other;         // MF_EXCL_ROOT
+    case 20: return Other;         // MF_EXCL
+    case 21: return Floor;         // MF_PLAYER
+    case 22: return Water;         // MF_DEEP_WATER (treat as water for now)
+    case 23: return Other;         // MF_PORTAL
+    case 24: return Other;         // MF_TRANSPORTER
+    case 25: return Other;         // MF_TRANSPORTER_LANDING
+    case 26: return Unexplored;    // MF_EXPLORE_HORIZON
     default:
         std::cerr << "Warning, received unknown map type: " << mf << std::endl;
         return Other;

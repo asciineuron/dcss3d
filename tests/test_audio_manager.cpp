@@ -180,3 +180,168 @@ TEST_CASE("Player damage detection works across multiple decreases", "[Player][A
     REQUIRE(sounds[0] == "damage");
     REQUIRE(sounds[1] == "damage");
 }
+
+// --- Death detection (hp <= 0) ---
+
+TEST_CASE("Player triggers game_over on death (hp drops to zero or below)", "[Player][AudioManager]")
+{
+    AudioManager audio;
+    Player player;
+    player.setAudioManager(&audio);
+
+    json msg1 = { {"msg", "player"}, {"name", "DoomedHero"}, {"hp", 10}, {"hp_max", 25}, {"time", 100} };
+    player.handleMessage(msg1);
+
+    // Lethal blow: hp goes to -7
+    json msg2 = { {"msg", "player"}, {"hp", -7}, {"time", 200} };
+    player.handleMessage(msg2);
+
+    auto& sounds = audio.triggeredSounds();
+    REQUIRE(sounds.size() == 1);
+    REQUIRE(sounds[0] == "game_over");
+}
+
+TEST_CASE("Player triggers game_over not damage when one-shot killed", "[Player][AudioManager]")
+{
+    AudioManager audio;
+    Player player;
+    player.setAudioManager(&audio);
+
+    json msg1 = { {"msg", "player"}, {"name", "FragileHero"}, {"hp", 25}, {"hp_max", 25}, {"time", 100} };
+    player.handleMessage(msg1);
+
+    // Killed in one hit: hp goes to 0
+    json msg2 = { {"msg", "player"}, {"hp", 0}, {"time", 200} };
+    player.handleMessage(msg2);
+
+    auto& sounds = audio.triggeredSounds();
+    REQUIRE(sounds.size() == 1);
+    REQUIRE(sounds[0] == "game_over");
+}
+
+TEST_CASE("Player does NOT trigger game_over twice for consecutive death messages", "[Player][AudioManager]")
+{
+    AudioManager audio;
+    Player player;
+    player.setAudioManager(&audio);
+
+    json msg1 = { {"msg", "player"}, {"name", "DeadHero"}, {"hp", 5}, {"hp_max", 25}, {"time", 100} };
+    player.handleMessage(msg1);
+
+    // Death
+    json msg2 = { {"msg", "player"}, {"hp", -2}, {"time", 200} };
+    player.handleMessage(msg2);
+
+    // Another death message (e.g., poison tick on corpse)
+    json msg3 = { {"msg", "player"}, {"hp", -3}, {"time", 300} };
+    player.handleMessage(msg3);
+
+    auto& sounds = audio.triggeredSounds();
+    // Only one game_over, not a second one plus damage
+    REQUIRE(sounds.size() == 1);
+    REQUIRE(sounds[0] == "game_over");
+}
+
+// --- Level up detection ---
+
+TEST_CASE("Player detects XL increase and triggers level_up sound", "[Player][AudioManager]")
+{
+    AudioManager audio;
+    Player player;
+    player.setAudioManager(&audio);
+
+    json msg1 = { {"msg", "player"}, {"name", "Hero"}, {"xl", 3}, {"time", 100} };
+    player.handleMessage(msg1);
+    REQUIRE(audio.triggeredSounds().empty());
+
+    json msg2 = { {"msg", "player"}, {"xl", 4}, {"time", 200} };
+    player.handleMessage(msg2);
+
+    auto& sounds = audio.triggeredSounds();
+    REQUIRE(sounds.size() == 1);
+    REQUIRE(sounds[0] == "level_up");
+}
+
+TEST_CASE("Player does NOT trigger level_up on first player message", "[Player][AudioManager]")
+{
+    AudioManager audio;
+    Player player;
+    player.setAudioManager(&audio);
+
+    json msg = { {"msg", "player"}, {"name", "NewHero"}, {"xl", 1}, {"time", 100} };
+    player.handleMessage(msg);
+
+    REQUIRE(audio.triggeredSounds().empty());
+}
+
+TEST_CASE("Player does NOT trigger level_up on same XL", "[Player][AudioManager]")
+{
+    AudioManager audio;
+    Player player;
+    player.setAudioManager(&audio);
+
+    json msg1 = { {"msg", "player"}, {"name", "Hero"}, {"xl", 5}, {"time", 100} };
+    player.handleMessage(msg1);
+
+    json msg2 = { {"msg", "player"}, {"xl", 5}, {"time", 200} };
+    player.handleMessage(msg2);
+
+    REQUIRE(audio.triggeredSounds().empty());
+}
+
+TEST_CASE("Player triggers both damage and level_up in same message", "[Player][AudioManager]")
+{
+    AudioManager audio;
+    Player player;
+    player.setAudioManager(&audio);
+
+    json msg1 = { {"msg", "player"}, {"name", "Hero"}, {"hp", 50}, {"xl", 3}, {"time", 100} };
+    player.handleMessage(msg1);
+
+    // Both damage and level up in one message (unlikely in practice, but valid)
+    json msg2 = { {"msg", "player"}, {"hp", 40}, {"xl", 4}, {"time", 200} };
+    player.handleMessage(msg2);
+
+    auto& sounds = audio.triggeredSounds();
+    REQUIRE(sounds.size() == 2);
+    // damage is checked first, level_up second (order matters for consistency)
+    REQUIRE(sounds[0] == "damage");
+    REQUIRE(sounds[1] == "level_up");
+}
+
+// --- game_ended detection ---
+
+TEST_CASE("AudioManager::handleMessage triggers game_over on game_ended", "[AudioManager]")
+{
+    AudioManager audio;
+
+    json msg = { {"msg", "game_ended"}, {"reason", "quit"} };
+    audio.handleMessage(msg);
+
+    auto& sounds = audio.triggeredSounds();
+    REQUIRE(sounds.size() == 1);
+    REQUIRE(sounds[0] == "game_over");
+}
+
+TEST_CASE("AudioManager::handleMessage triggers game_over regardless of reason", "[AudioManager]")
+{
+    AudioManager audio;
+
+    audio.handleMessage({ {"msg", "game_ended"}, {"reason", "quit"} });
+    audio.handleMessage({ {"msg", "game_ended"}, {"reason", "crash"} });
+
+    auto& sounds = audio.triggeredSounds();
+    REQUIRE(sounds.size() == 2);
+    REQUIRE(sounds[0] == "game_over");
+    REQUIRE(sounds[1] == "game_over");
+}
+
+TEST_CASE("AudioManager::handleMessage does NOT trigger game_over for non-game_ended", "[AudioManager]")
+{
+    AudioManager audio;
+
+    json msg = { {"msg", "player"}, {"hp", 10} };
+    audio.handleMessage(msg);
+
+    REQUIRE(audio.triggeredSounds().empty());
+}

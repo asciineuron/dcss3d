@@ -106,8 +106,9 @@ void Player::handlePlayerMessage(const json& message)
         m_data.time = time;
     }
 
-    // 2.5. Detect HP decrease for damage sound
+    // 2.5. Detect HP decrease for damage sound, and XL increase for level up
     int oldHp = m_data.hp;
+    int oldXl = m_data.xl;
     bool hadPreviousPlayerMsg = m_data.hp > 0 || !m_data.name.empty();
 
     // 3. Extend remaining fields onto player data (JS: $.extend(player, data))
@@ -161,9 +162,20 @@ void Player::handlePlayerMessage(const json& message)
     setIf("unarmed_attack", m_data.unarmed_attack);
     setIf("unarmed_attack_colour", m_data.unarmed_attack_colour);
 
-    // Detect HP decrease for damage sound (after hp has been updated by setIf above)
-    if (hadPreviousPlayerMsg && m_audioManager && m_data.hp < oldHp) {
-        m_audioManager->triggerSound("damage");
+    // Detect HP events (after hp has been updated by setIf above)
+    if (hadPreviousPlayerMsg && m_audioManager) {
+        // Death: HP went from positive to zero or below
+        if (oldHp > 0 && m_data.hp <= 0) {
+            m_audioManager->triggerSound("game_over");
+        } else if (oldHp > 0 && m_data.hp < oldHp) {
+            // Plain damage (not lethal, and not already dead)
+            m_audioManager->triggerSound("damage");
+        }
+    }
+
+    // Detect XL increase for level-up sound
+    if (hadPreviousPlayerMsg && m_audioManager && m_data.xl > oldXl) {
+        m_audioManager->triggerSound("level_up");
     }
 
     // status: array of strings
