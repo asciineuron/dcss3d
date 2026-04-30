@@ -515,6 +515,43 @@ void Model::loadObj(std::string_view filename)
     m_faces = std::move(newFaces);
 }
 
+void Model::scaleToUnitCube()
+{
+    if (m_vertices.empty()) return;
+
+    // Find bounding box
+    glm::vec3 min = m_vertices[0];
+    glm::vec3 max = m_vertices[0];
+    for (const auto& v : m_vertices) {
+        min = glm::min(min, v);
+        max = glm::max(max, v);
+    }
+
+    glm::vec3 extent = max - min;
+    float maxExtent = std::max({extent.x, extent.y, extent.z});
+    if (maxExtent < 0.0001f) return; // degenerate
+
+    float scale = 1.0f / maxExtent;
+    glm::vec3 center = (min + max) * 0.5f;
+
+    // Scale vertices: translate to origin, scale, then raise so base sits on y=0.
+    float halfHeight = extent.y * scale * 0.5f;
+    for (auto& v : m_vertices) {
+        v = (v - center) * scale;
+        v.y += halfHeight;
+    }
+
+    // Re-normalize normals (uniform scale preserves direction).
+    for (auto& n : m_normals) {
+        float len = glm::length(n);
+        if (len > 0.0001f) n /= len;
+    }
+    for (auto& n : m_rawNormals) {
+        float len = glm::length(n);
+        if (len > 0.0001f) n /= len;
+    }
+}
+
 BufferedModel::BufferedModel(SDL_GPUDevice* gpu, SDL_Window* window, std::unique_ptr<Model> model,
     ShaderParameters vertex, ShaderParameters fragment, std::string_view textureFilename)
     : m_model { std::move(model) }
@@ -847,8 +884,10 @@ MonsterBufferedModel* Renderer::getOrCreateMonsterModel(const std::string& model
 
     // Lazily create the model — standalone monster vertex shader with look-at rotation.
     // Uses position_monster.vert (no sentinel hack) and solid.frag (no texture).
+    auto modelPtr = std::make_unique<Model>(modelFile);
+    modelPtr->scaleToUnitCube();
     auto model = std::make_unique<MonsterBufferedModel>(
-        m_GPUDevice, m_window, std::make_unique<Model>(modelFile),
+        m_GPUDevice, m_window, std::move(modelPtr),
         ShaderParameters { std::string_view("position_monster.vert"), 0, 2, 0, 0 },
         ShaderParameters { std::string_view("solid.frag"), 0, 1, 0, 0 });
 

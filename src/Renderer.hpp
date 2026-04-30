@@ -43,6 +43,10 @@ public:
     const std::vector<glm::vec3>& normals() const { return m_normals; }
     const std::vector<Face>& faces() const { return m_faces; }
 
+    // Scale all vertices so the model fits within a unit cube centered at origin,
+    // with its base on the floor plane (y=0). Normals are re-normalized.
+    void scaleToUnitCube();
+
     friend std::ostream& operator<<(std::ostream&, const Model&);
 
 private:

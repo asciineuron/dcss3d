@@ -39,8 +39,8 @@ struct main_out {
 [shader("vertex")]
 main_out main(main_in input)
 {
-    // Monsters sit on the floor — no sinking.
-    float shiftY = 0.0f;
+    // Monsters sit on the floor (bottom of cell, y=-0.5).
+    float shiftY = -0.5f;
 
     // Compute look-at-player rotation in the XZ plane.
     // shiftData.xy = monster render position, playerPos.xy = player render position.
