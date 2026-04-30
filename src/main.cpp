@@ -299,7 +299,13 @@ int main(int argc, char* argv[])
                 std::unique_ptr<Turn> turn;
                 turn = player.updatePosition(gameTime, map);
                 if (turn) {
-                    spdlog::debug("generated turn: {}", turn->asMessage().dump());
+                    if (auto* moveTurn = dynamic_cast<MoveTurn*>(turn.get())) {
+                        spdlog::debug("sending movement: dir={} msg={}",
+                                      directionToString[moveTurn->getDirection()],
+                                      turn->asMessage().dump());
+                    } else {
+                        spdlog::debug("sending turn: {}", turn->asMessage().dump());
+                    }
                     turn->playSound(audioManager);
                     networkManager.sendMessage(turn->asMessage());
 

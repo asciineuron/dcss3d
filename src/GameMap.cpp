@@ -77,19 +77,31 @@ glm::vec4 mapTypeToColor(MapType type)
     return { 0.4f, 0.1f, 0.6f, 0.7f }; // fallback safety net
 }
 
-// use for future trial Pos2, don't need to do direction checking, just proximity
+// Check if the test location would collide with a blocking map element.
+// Blocks on: Wall tiles, monsters, and feature tiles (plants, etc.).
 bool GameMap::wouldCollide(const glm::vec2& testLoc) const
 {
-    for (const auto& [mapCoord, tile] : m_map) {
-        if (tile.type() != MapType::Wall)
-            continue;
-        glm::vec2 renderCoords = mapCoordToRender(mapCoord);
-        if (std::abs(renderCoords.x - testLoc.x) < 0.5f &&
-            std::abs(renderCoords.y - testLoc.y) < 0.5f) {
-            spdlog::debug("collision at ({:.3f}, {:.3f})", renderCoords.x, renderCoords.y);
+    // Convert render-space test location to game coordinates.
+    // Inverse of mapCoordToRender: gameX = floor(renderX), gameY = floor(renderZ + 1).
+    int cellX = static_cast<int>(std::floor(testLoc.x));
+    int cellY = static_cast<int>(std::floor(testLoc.y + 1.0f));
+
+    // Check tile at that cell
+    auto tileIt = m_map.find({cellX, cellY});
+    if (tileIt != m_map.end()) {
+        MapType type = tileIt->second.type();
+        if (type == MapType::Wall || type == MapType::Other) {
+            spdlog::debug("collision at ({}, {}): type={}", cellX, cellY, static_cast<int>(type));
             return true;
         }
     }
+
+    // Check for monster at that cell
+    if (m_monsters.contains({cellX, cellY})) {
+        spdlog::debug("collision at ({}, {}): monster present", cellX, cellY);
+        return true;
+    }
+
     return false;
 }
 
@@ -115,6 +127,8 @@ void GameMap::shift(Direction moveDir)
 
     if (dx == 0 && dy == 0)
         return;
+
+    spdlog::debug("map shift: {} (dx={}, dy={})", directionToString[moveDir], dx, dy);
 
     // Shift tile map
     MapData nextMap;

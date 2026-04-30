@@ -39,10 +39,10 @@ json MoveTurn::asMessage() const
         dir_val = "8";
         break;
     case East:
-        dir_val = "2";
+        dir_val = "6";
         break;
     case South:
-        dir_val = "6";
+        dir_val = "2";
         break;
     case West:
         dir_val = "4";
