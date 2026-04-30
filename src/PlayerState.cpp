@@ -17,63 +17,6 @@ void Player::handleMessage(const json& message)
 
     if (message["msg"] != "map")
         return;
-
-    // When the server sends a new map, the player's position is reset to the "incoming side"
-    // of the new tile (e.g., entering from south means y=-1.5 instead of y=0.5).
-    // We need to shift the camera in the opposite direction to maintain visual continuity.
-    if (m_lastMoveDirection != None) {
-        spdlog::debug("Adjusting camera for map update, last move: {}",
-                      directionToString[m_lastMoveDirection]);
-
-        // Shift camera opposite to the movement direction
-        // Remember: camera pos[0]=X (sideways), pos[2]=Z (forward/backward)
-        // Game map: X=sideways, Y=forward (mapped to camera Z)
-        switch (m_lastMoveDirection) {
-            case North:
-                // Moving north (y decreases by 1), shift camera south (y increases)
-                m_camera.pos[2] += 1.0f;
-                break;
-            case South:
-                // Moving south (y increases by 1), shift camera north (y decreases)
-                m_camera.pos[2] -= 1.0f;
-                break;
-            case East:
-                // Moving east (x increases by 1), shift camera west (x decreases)
-                m_camera.pos[0] -= 1.0f;
-                break;
-            case West:
-                // Moving west (x decreases by 1), shift camera east (x increases)
-                m_camera.pos[0] += 1.0f;
-                break;
-            case NorthEast:
-                m_camera.pos[0] -= 1.0f;
-                m_camera.pos[2] += 1.0f;
-                break;
-            case SouthEast:
-                m_camera.pos[0] -= 1.0f;
-                m_camera.pos[2] -= 1.0f;
-                break;
-            case SouthWest:
-                m_camera.pos[0] += 1.0f;
-                m_camera.pos[2] -= 1.0f;
-                break;
-            case NorthWest:
-                m_camera.pos[0] += 1.0f;
-                m_camera.pos[2] += 1.0f;
-                break;
-            case Here:
-            case None:
-            case DirectionSize:
-                // No directional movement, no camera adjustment needed
-                break;
-        }
-
-        spdlog::debug("Camera adjusted to ({:.3f}, {:.3f}, {:.3f})",
-                      m_camera.pos[0], m_camera.pos[1], m_camera.pos[2]);
-
-        // Clear the last move direction since we've applied the adjustment
-        m_lastMoveDirection = None;
-    }
 }
 
 void Player::handlePlayerMessage(const json& message)
@@ -259,54 +202,6 @@ void Player::updateView(const float mouse_dx, const float mouse_dy)
     m_camera.phi = std::clamp(m_camera.phi, -pi_v<float> / 2.f + 0.01f, pi_v<float> / 2.f - 0.01f);
 }
 
-/**
- * Adjusts position to be relative new cell. If player moves in direction, the map is
- * updated relative the new position, so the position must be given relative to that
- * tile (e.g enter from below, y position flips from top of old tile to bottom of new tile)
- */
-glm::vec2 newCellPosition(glm::vec2 testPosition, Direction moveDir)
-{
-    // remember cube width is 2.0 total +- 1.0 extent
-    // TODO check order/sign correct i.e. y reversed
-    switch (moveDir) {
-    case None:
-        break;
-    case Here:
-        break;
-    case North:
-        testPosition.y -= 2.0;
-        break;
-    case East:
-        testPosition.x += 2.0;
-        break;
-    case South:
-        testPosition.y += 2.0;
-        break;
-    case West:
-        testPosition.x -= 2.0;
-        break;
-    case NorthWest:
-        testPosition.x -= 2.0;
-        testPosition.y -= 2.0;
-        break;
-    case NorthEast:
-        testPosition.x += 2.0;
-        testPosition.y -= 2.0;
-        break;
-    case SouthWest:
-        testPosition.x -= 2.0;
-        testPosition.y += 2.0;
-        break;
-    case SouthEast:
-        testPosition.x += 2.0;
-        testPosition.y += 2.0;
-        break;
-    default:
-        throw std::logic_error("invalid direction specified");
-    }
-    return testPosition;
-}
-
 std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& gameMap)
 {
 
@@ -364,7 +259,6 @@ std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& 
     // make move turn
     if (moveDir != None) {
         spdlog::debug("move direction: {}", directionToString[moveDir]);
-        m_lastMoveDirection = moveDir; // Track for camera adjustment on map update
         return std::make_unique<MoveTurn>(moveDir);
     } else {
         return nullptr;

@@ -308,10 +308,6 @@ int main(int argc, char* argv[])
                     }
                     turn->playSound(audioManager);
                     networkManager.sendMessage(turn->asMessage());
-
-                    if (auto* moveTurn = dynamic_cast<MoveTurn*>(turn.get())) {
-                        map.shift(moveTurn->getDirection());
-                    }
                 }
             }
 

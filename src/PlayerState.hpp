@@ -151,10 +151,9 @@ public:
 private:
     void handlePlayerMessage(const json& message);
 
-    Camera m_camera; // TODO these shift too each render, should watch for map update? can then reset DO THIS IN HANDLE_MESSAGE
+    Camera m_camera;
     float m_velX {};
     float m_velY {};
-    Direction m_lastMoveDirection { None }; // Track last move for camera adjustment on map update
     PlayerData m_data;
     int m_lastTime = 0; // for time_delta calculation
     AudioManager* m_audioManager = nullptr;

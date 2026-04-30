@@ -314,7 +314,6 @@ void GameMap::updateMap(const json& message)
 
     int curX;
     Pos2<int> pos;
-    MapType type;
     for (auto& cell : message["cells"]) {
         if (auto x = cell.find("x"); x != cell.end()) {
             curX = x.value();
@@ -324,10 +323,16 @@ void GameMap::updateMap(const json& message)
         pos.x = curX;
         if (auto y = cell.find("y"); y != cell.end())
             pos.y = y.value();
-        if (auto mf = cell.find("mf"); mf != cell.end())
-            type = mapTypeFromMF(mf.value());
 
-        m_map[pos] = Tile(type);
+        // Only update tile type if mf is explicitly provided.
+        // Incremental updates often omit mf for unchanged cells —
+        // using a stale type from the previous cell would corrupt the map.
+        if (auto mf = cell.find("mf"); mf != cell.end()) {
+            m_map[pos] = Tile(mapTypeFromMF(mf.value()));
+        } else if (!m_map.contains(pos)) {
+            // Cell is new to us but has no mf — default to Floor.
+            m_map[pos] = Tile(MapType::Floor);
+        }
 
         // --- Monster handling ---
         auto monIt = cell.find("mon");
