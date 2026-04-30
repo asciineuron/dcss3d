@@ -602,14 +602,13 @@ void displayPlayer(const Player& player)
     ImGui::Separator();
 
     // --- Attributes ---
-    if (ImGui::CollapsingHeader("Attributes")) {
-        ImGui::Text("Str: %d (%d)  Int: %d (%d)  Dex: %d (%d)",
-                     d.str, d.str_max, d.intel, d.intel_max, d.dex, d.dex_max);
-        if (d.piety_rank > 0)
-            ImGui::Text("Piety: %.*s*****", d.piety_rank, "**********");
-        if (d.penance)
-            ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "(Penance)");
-    }
+    ImGui::Text("Attributes:");
+    ImGui::Text("Str: %d (%d)  Int: %d (%d)  Dex: %d (%d)",
+                 d.str, d.str_max, d.intel, d.intel_max, d.dex, d.dex_max);
+    if (d.piety_rank > 0)
+        ImGui::Text("Piety: %.*s*****", d.piety_rank, "**********");
+    if (d.penance)
+        ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, 1.0f), "(Penance)");
 
     // --- Status effects ---
     if (!d.status.empty()) {

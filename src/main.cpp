@@ -213,6 +213,13 @@ int main(int argc, char* argv[])
             // Display all ImGui windows — layout management, pin gating, and content
             displayAllWindows(player, map, networkManager, renderer, LAYOUT_FILENAME);
 
+            // In Normal mode, pinned windows are read-only overlays.
+            // Clear any ImGui capture state so game input is not blocked.
+            if (WindowManager::instance().getMode() == WindowManager::Mode::Normal) {
+                io.WantCaptureKeyboard = false;
+                io.WantCaptureMouse = false;
+            }
+
             ImGui::Render();
 
             // Compute target cell highlight position before rendering
@@ -238,13 +245,9 @@ int main(int argc, char* argv[])
             {
                 SDL_Event event;
                 while (SDL_PollEvent(&event)) {
-                    // When no UI is showing, skip mouse events to ImGui entirely.
-                    // Pinned windows are read-only overlays — no hover, no clicks.
-                    bool isMouseEvent = (event.type == SDL_EVENT_MOUSE_MOTION ||
-                                        event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-                                        event.type == SDL_EVENT_MOUSE_BUTTON_UP ||
-                                        event.type == SDL_EVENT_MOUSE_WHEEL);
-                    if (!isMouseEvent || WindowManager::instance().shouldRenderUI()) {
+                    // When UI is not active (Normal mode), skip ALL events to ImGui.
+                    // Pinned windows are read-only overlays — no hover, no clicks, no keyboard.
+                    if (WindowManager::instance().shouldRenderUI()) {
                         ImGui_ImplSDL3_ProcessEvent(&event);
                     }
 
