@@ -3,17 +3,26 @@
 #include <spdlog/spdlog.h>
 #include "AudioManager.hpp"
 
+// Array indexed by Direction enum values (which are non-sequential bitmask values).
+// Ensure each enum value maps to the correct string.
 const char* directionToString[DirectionSize] = {
-    "None",
-    "North",
-    "East",
-    "South",
-    "West",
-    "NorthEast",
-    "SouthEast",
-    "SouthWest",
-    "NorthWest",
-    "Here"
+    /*  0 */ "None",
+    /*  1 */ "North",
+    /*  2 */ "East",
+    /*  3 */ "NorthEast",
+    /*  4 */ "South",
+    /*  5 */ nullptr,
+    /*  6 */ "SouthEast",
+    /*  7 */ nullptr,
+    /*  8 */ "West",
+    /*  9 */ "NorthWest",
+    /* 10 */ nullptr,
+    /* 11 */ nullptr,
+    /* 12 */ "SouthWest",
+    /* 13 */ nullptr,
+    /* 14 */ nullptr,
+    /* 15 */ nullptr,
+    /* 16 */ "Here"
 };
 
 MoveTurn::MoveTurn(Direction direction)
