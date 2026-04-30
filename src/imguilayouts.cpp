@@ -30,8 +30,12 @@ const char* g_pendingLayoutFilename = nullptr;
 // Callback to get current window layout
 WindowLayoutCallback g_windowLayoutCallback = nullptr;
 
-// Pin state: window name -> is pinned
-std::unordered_map<std::string, bool> g_pinState;
+// Pin state: window name -> is pinned.
+// Map and player windows start pinned so they're visible in Normal mode.
+std::unordered_map<std::string, bool> g_pinState = {
+    {"map", true},
+    {"player", true},
+};
 
 // Strip DCSS color tags like <brown>, <lightgreen>, <w> from a string
 std::string stripColorTags(const std::string& str)
