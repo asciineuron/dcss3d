@@ -146,10 +146,11 @@ void WindowManager::handleMessage(const json& message)
         return;
     }
 
-    // Game process started — transition to Overlay; skybox and UI become visible.
+    // Game process started — transition to Normal (playable); skybox becomes visible.
+    // The player can press Escape to toggle the overlay on.
     if (m_mode == Mode::Login && msgType == "game_started") {
         m_characterSelectData.reset();
-        setMode(Mode::Overlay);
+        setMode(Mode::Normal);
         return;
     }
 
