@@ -72,7 +72,7 @@ void displayPlayer(const Player&);
 
 void displayEquipment(const Player&);
 
-void displayMap(const GameMap&);
+void displayMap(const GameMap&, const Player&);
 
 void networkMenu(NetworkManager&);
 

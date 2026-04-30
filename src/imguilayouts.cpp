@@ -217,7 +217,7 @@ void displayAllWindows(const Player& player, const GameMap& map,
         } else if (pendingLayout && pendingLayoutCount > 0) {
             applyLayoutForWindow("map", pendingLayout, pendingLayoutCount);
         }
-        displayMap(map);
+        displayMap(map, player);
     }
 
     // Network window (index 2)
@@ -670,13 +670,14 @@ void displayPlayer(const Player& player)
     ImGui::End();
 }
 
-void displayMap(const GameMap& map)
+void displayMap(const GameMap& map, const Player& player)
 {
     ImGui::Begin("map");
     PinButton("map");
     ImGui::Spacing();
 
     ImGui::Text("map:");
+    ImGui::Text("look: %s", directionToString[player.getFacingDirection()]);
     
     auto bounds = map.getBounds();
     for (int y = bounds.y_min; y <= bounds.y_max; ++y) {
@@ -693,6 +694,38 @@ void displayMap(const GameMap& map)
                 // Blinking red color for player
                 float alpha = (sinf(ImGui::GetTime() * 8.0f) * 0.5f) + 0.5f;
                 ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, alpha), "%d", static_cast<int>(type));
+
+                // Draw a small red arrow centered on the player's number,
+                // pointing in the direction of the camera.
+                ImVec2 itemMin = ImGui::GetItemRectMin();
+                ImVec2 itemMax = ImGui::GetItemRectMax();
+                float cx = (itemMin.x + itemMax.x) * 0.5f;
+                float cy = (itemMin.y + itemMax.y) * 0.5f;
+
+                float theta = player.camera().theta;
+                float dirX = cosf(theta);
+                float dirY = -sinf(theta);  // screen y increases downward, North = up
+
+                // Arrow: tail at center (pivot), tip extends in camera direction
+                float arrowLen = 14.0f;
+                float tipX = cx + dirX * arrowLen;
+                float tipY = cy + dirY * arrowLen;
+
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                ImU32 arrowColor = IM_COL32(255, 0, 0, 255);
+
+                // Shaft
+                dl->AddLine(ImVec2(cx, cy), ImVec2(tipX, tipY), arrowColor, 1.5f);
+
+                // Arrowhead: small triangle at the tip
+                float headSize = 3.5f;
+                float perpX = -dirY * headSize;
+                float perpY = dirX * headSize;
+                dl->AddTriangleFilled(
+                    ImVec2(tipX + dirX * headSize * 0.6f, tipY + dirY * headSize * 0.6f),
+                    ImVec2(tipX + perpX, tipY + perpY),
+                    ImVec2(tipX - perpX, tipY - perpY),
+                    arrowColor);
             } else {
                 glm::vec4 color = mapTypeToColor(type);
                 ImGui::TextColored(ImVec4(color.r, color.g, color.b, color.a), "%d", static_cast<int>(type));
