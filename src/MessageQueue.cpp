@@ -25,7 +25,7 @@ void processMessages(handlerConfig& config, std::span<json> messages)
         if (!config.contains(message["msg"]))
             continue;
 
-        spdlog::debug("processing message: {}", message.dump());
+        spdlog::info("processing message: {}", message.dump());
         for (auto handler : config.at(message["msg"])) {
             results.push_back(std::async(&MessageHandler::handleMessage, handler, message));
         }

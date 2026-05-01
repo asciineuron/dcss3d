@@ -113,7 +113,7 @@ Renderer::Renderer()
 }
 // TODO stuck acquiring swapchain texture...
 
-void Renderer::doRender(GameMap& map, const Camera& camera)
+void Renderer::doRender(GameMap& map, const Camera& camera, Pos2<int> playerPos)
 {
     // do all rendering-related updates that don't require a command buffer pass first
     const bool shouldRenderUI = WindowManager::instance().shouldRenderUI() || anyWindowsPinned();
@@ -148,7 +148,7 @@ void Renderer::doRender(GameMap& map, const Camera& camera)
 
         // upload all data via copy passes
         if (!map.didRender()) {
-            pushMapToGPU(map, commandBuffer);
+            pushMapToGPU(map, playerPos, commandBuffer);
             pushMonsterToGPU(map, commandBuffer);
             map.setDidRender(true);
         }
@@ -239,9 +239,9 @@ const uint64_t Renderer::renderCount() const
 }
 
 // delegate to the MapDisplacedBufferedModel?
-void Renderer::pushMapToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
+void Renderer::pushMapToGPU(const GameMap& map, Pos2<int> playerPos, SDL_GPUCommandBuffer* cmdBuf)
 {
-    m_mapCubeModel->pushMapData(map, cmdBuf);
+    m_mapCubeModel->pushMapData(map, playerPos, cmdBuf);
 }
 
 void Renderer::pushMonsterToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
@@ -783,19 +783,27 @@ MapDisplacedBufferedModel::MapDisplacedBufferedModel(SDL_GPUDevice* gpu, SDL_Win
     m_dataTransferBuf = SDL_CreateGPUTransferBuffer(m_GPUDevice, &mapTransferCreateInfo);
 }
 
-void MapDisplacedBufferedModel::pushMapData(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
+void MapDisplacedBufferedModel::pushMapData(const GameMap& map, Pos2<int> playerPos, SDL_GPUCommandBuffer* cmdBuf)
 {
+    // Only push cells that the server says are currently visible (t.bg flags).
+    auto isVisible = [](const Tile& tile) {
+        return tile.isVisible();
+    };
+
     // displacement, color info (per-instance vertex buffer):
     DisplacementColorInfo* mappedDisplacementColor = (DisplacementColorInfo*)SDL_MapGPUTransferBuffer(
         m_GPUDevice, m_dataTransferBuf, true);
-    for (auto idx = 0; const auto& [mapCoord, tile] : map.map()) {
+    unsigned idx = 0;
+    for (const auto& [mapCoord, tile] : map.map()) {
+        if (!isVisible(tile))
+            continue;
+
         glm::vec2 renderCoords2D = mapCoordToRender(mapCoord);
         mappedDisplacementColor[idx].shiftX = renderCoords2D.x;
         mappedDisplacementColor[idx].shiftY = renderCoords2D.y;
         mappedDisplacementColor[idx].tileType = static_cast<float>(std::to_underlying(tile.type()));
         mappedDisplacementColor[idx].padding = 0.0f;
         mappedDisplacementColor[idx].color = mapTypeToColor(tile.type());
-        // TODO: hard limit on # map entries
         if (++idx >= s_maxRenderCopies)
             break;
     }
@@ -806,8 +814,7 @@ void MapDisplacedBufferedModel::pushMapData(const GameMap& map, SDL_GPUCommandBu
         m_GPUDevice, m_drawTransferBuf, true);
     drawTransfer[0] = (SDL_GPUIndexedIndirectDrawCommand) {
         .num_indices = static_cast<Uint32>(3 * m_model->faces().size()),
-        // NOTE: setting num_instances:
-        .num_instances = static_cast<Uint32>(map.map().size()),
+        .num_instances = idx,
         .first_index = 0,
         .vertex_offset = 0,
         .first_instance = 0

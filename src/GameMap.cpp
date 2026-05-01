@@ -55,26 +55,18 @@ glm::vec4 mapTypeToColor(MapType type)
 {
     using enum MapType;
     switch (type) {
-    case Wall:
-        return { 0.5f, 0.5f, 0.0f, 1.0f };
-        break;
-    case Floor:
-        return { 0.0f, 0.5f, 0.0f, 1.0f };
-        break;
-    case Unexplored:
-        return { 0.5f, 0.5f, 0.5f, 1.0f };
-        break;
-    case Water:
-        return { 0.0f, 0.3f, 0.8f, 1.0f };
-        break;
-    case Lava:
-        return { 0.8f, 0.3f, 0.0f, 1.0f };
-        break;
-    case Other:
-        return { 0.0f, 0.5f, 0.5f, 1.0f };
-        break;
+    case Wall:        return { 0.5f, 0.5f, 0.0f, 1.0f };
+    case Floor:       return { 0.0f, 0.5f, 0.0f, 1.0f };
+    case Door:        return { 0.5f, 0.3f, 0.0f, 1.0f };  // brown
+    case Item:        return { 0.8f, 0.8f, 0.3f, 1.0f };  // bright yellow
+    case WallMemory:  return { 0.3f, 0.3f, 0.0f, 1.0f };
+    case FloorMemory: return { 0.0f, 0.25f, 0.0f, 1.0f };
+    case Unexplored:  return { 0.5f, 0.5f, 0.5f, 1.0f };
+    case Water:       return { 0.0f, 0.3f, 0.8f, 1.0f };
+    case Lava:        return { 0.8f, 0.3f, 0.0f, 1.0f };
+    case Other:       return { 0.0f, 0.5f, 0.5f, 1.0f };
     }
-    return { 0.4f, 0.1f, 0.6f, 0.7f }; // fallback safety net
+    return { 0.4f, 0.1f, 0.6f, 0.7f }; // fallback
 }
 
 // Check if the test location would collide with a blocking map element.
@@ -90,7 +82,7 @@ bool GameMap::wouldCollide(const glm::vec2& testLoc) const
     auto tileIt = m_map.find({cellX, cellY});
     if (tileIt != m_map.end()) {
         MapType type = tileIt->second.type();
-        if (type == MapType::Wall || type == MapType::Other) {
+        if (type == MapType::Wall || type == MapType::WallMemory || type == MapType::Other) {
             spdlog::debug("collision at ({}, {}): type={}", cellX, cellY, static_cast<int>(type));
             return true;
         }
@@ -128,8 +120,6 @@ void GameMap::shift(Direction moveDir)
     if (dx == 0 && dy == 0)
         return;
 
-    spdlog::debug("map shift: {} (dx={}, dy={})", directionToString[moveDir], dx, dy);
-
     // Shift tile map
     MapData nextMap;
     for (const auto& [pos, tile] : m_map) {
@@ -161,26 +151,26 @@ MapType mapTypeFromMF(int mf)
     case  0: return Unexplored;   // MF_UNSEEN
     case  1: return Floor;         // MF_FLOOR
     case  2: return Wall;          // MF_WALL
-    case  3: return Floor;         // MF_MAP_FLOOR (known explored floor)
-    case  4: return Wall;          // MF_MAP_WALL (known explored wall)
-    case  5: return Floor;         // MF_DOOR (treat as floor — door opens)
-    case  6: return Floor;         // MF_ITEM (treat as floor — item on ground)
+    case  3: return FloorMemory;   // MF_MAP_FLOOR
+    case  4: return WallMemory;    // MF_MAP_WALL
+    case  5: return Door;          // MF_DOOR
+    case  6: return Item;          // MF_ITEM
     case  7: return Floor;         // MF_MONS_FRIENDLY
     case  8: return Floor;         // MF_MONS_PEACEFUL
     case  9: return Floor;         // MF_MONS_NEUTRAL
     case 10: return Floor;         // MF_MONS_HOSTILE
     case 11: return Floor;         // MF_MONS_NO_EXP
-    case 12: return Floor;         // MF_STAIR_UP (treat as floor — stairs)
+    case 12: return Floor;         // MF_STAIR_UP
     case 13: return Floor;         // MF_STAIR_DOWN
     case 14: return Floor;         // MF_STAIR_BRANCH
-    case 15: return Other;         // MF_FEATURE (trap, portal, etc.)
+    case 15: return Other;         // MF_FEATURE
     case 16: return Water;         // MF_WATER
     case 17: return Lava;          // MF_LAVA
     case 18: return Other;         // MF_TRAP
     case 19: return Other;         // MF_EXCL_ROOT
     case 20: return Other;         // MF_EXCL
     case 21: return Floor;         // MF_PLAYER
-    case 22: return Water;         // MF_DEEP_WATER (treat as water for now)
+    case 22: return Water;         // MF_DEEP_WATER
     case 23: return Other;         // MF_PORTAL
     case 24: return Other;         // MF_TRANSPORTER
     case 25: return Other;         // MF_TRANSPORTER_LANDING
@@ -238,6 +228,70 @@ std::string GameMap::asciiView() const
     return asciified;
 }
 
+std::string GameMap::dumpString() const
+{
+    if (m_map.empty()) return "(empty)\n";
+
+    Bounds b = m_bounds;
+    int w = b.x_max - b.x_min + 1;
+    int h = b.y_max - b.y_min + 1;
+
+    std::vector<char> grid(w * h, ' ');
+    for (const auto& [pos, tile] : m_map) {
+        int gx = pos.x - b.x_min;
+        int gy = pos.y - b.y_min;
+        bool vis = tile.isVisible();
+        char c = '?';
+        switch (tile.type()) {
+        case MapType::Wall:        c = vis ? '#' : '='; break;
+        case MapType::Floor:       c = vis ? '.' : ':'; break;
+        case MapType::Door:        c = vis ? '+' : 'd'; break;
+        case MapType::Item:        c = vis ? '!' : 'i'; break;
+        case MapType::WallMemory:  c = '='; break;
+        case MapType::FloorMemory: c = ':'; break;
+        case MapType::Unexplored:  c = 'U'; break;
+        case MapType::Water:       c = vis ? '~' : 'w'; break;
+        case MapType::Lava:        c = vis ? 'L' : 'l'; break;
+        case MapType::Other:       c = vis ? 'O' : 'o'; break;
+        }
+        if (m_monsters.contains(pos)) c = 'M';
+        grid[gy * w + gx] = c;
+    }
+
+    std::string monSummary;
+    for (const auto& [pos, monId] : m_monsters) {
+        auto it = m_monsterTable.find(monId);
+        const char* name = (it != m_monsterTable.end()) ? it->second.name().c_str() : "?";
+        monSummary += std::format("  id={} '{}' at ({},{})\n", monId, name, pos.x, pos.y);
+    }
+
+    std::string header;
+    for (int x = b.x_min; x <= b.x_max; ++x) {
+        if (x % 5 == 0 || x == b.x_min)
+            header += std::format("{:>3}", x);
+        else
+            header += "   ";
+    }
+
+    std::string out;
+    out += std::format("Map {}x{} [{}..{}, {}..{}]:\n", w, h, b.x_min, b.x_max, b.y_min, b.y_max);
+    out += std::format("   {}\n", header);
+    for (int y = 0; y < h; ++y) {
+        std::string row;
+        for (int x = 0; x < w; ++x)
+            row += std::format("  {}", grid[y * w + x]);
+        out += std::format("{:2}: {}\n", b.y_min + y, row);
+    }
+    if (!monSummary.empty())
+        out += "Monsters:\n" + monSummary;
+    return out;
+}
+
+void GameMap::dump() const
+{
+    spdlog::info("{}", dumpString());
+}
+
 GameMap::Bounds GameMap::getBounds() const
 {
     return m_bounds;
@@ -263,6 +317,15 @@ std::optional<MapType> GameMap::getTileAt(int x, int y) const
         return it->second.type();
     }
     return std::nullopt;
+}
+
+bool GameMap::isVisibleAt(int x, int y) const
+{
+    auto it = m_map.find({ x, y });
+    if (it != m_map.end()) {
+        return it->second.isVisible();
+    }
+    return false;
 }
 
 std::optional<std::reference_wrapper<const Monster>> GameMap::getMonsterAt(int x, int y) const
@@ -324,14 +387,39 @@ void GameMap::updateMap(const json& message)
         if (auto y = cell.find("y"); y != cell.end())
             pos.y = y.value();
 
-        // Only update tile type if mf is explicitly provided.
-        // Incremental updates often omit mf for unchanged cells —
-        // using a stale type from the previous cell would corrupt the map.
+        // Mirror JavaScript merge(): for each property in the cell, update the
+        // stored entry.  mf determines tile type; t.bg determines visibility.
         if (auto mf = cell.find("mf"); mf != cell.end()) {
-            m_map[pos] = Tile(mapTypeFromMF(mf.value()));
+            MapType newType = mapTypeFromMF(mf.value());
+            auto it = m_map.find(pos);
+            if (it == m_map.end()) {
+                m_map[pos] = Tile(newType);
+            } else {
+                // Preserve existing tile data (visibility), update type only
+                TileData saved = it->second.tileData();
+                it->second = Tile(newType);
+                it->second.tileData() = saved;
+            }
         } else if (!m_map.contains(pos)) {
-            // Cell is new to us but has no mf — default to Floor.
-            m_map[pos] = Tile(MapType::Floor);
+            // Cell is new to us but has no mf — create with Unexplored so the
+            // cell exists, but it won't be visible (no tile data yet).
+            m_map[pos] = Tile(MapType::Unexplored);
+        }
+
+        // Parse t.bg for visibility (mirrors JS merge of t property)
+        if (auto t = cell.find("t"); t != cell.end() && t->is_object()) {
+            auto& td = m_map[pos].tileData();
+            if (auto bg = t->find("bg"); bg != t->end() && !bg->is_null()) {
+                td.hasBg = true;
+                if (bg->is_number()) {
+                    td.bg = bg->get<uint64_t>();
+                } else if (bg->is_array() && bg->size() >= 1) {
+                    // t.bg can be sent as [low32, high32] array
+                    td.bg = (*bg)[0].get<uint64_t>();
+                    if (bg->size() >= 2)
+                        td.bg |= static_cast<uint64_t>((*bg)[1].get<uint32_t>()) << 32;
+                }
+            }
         }
 
         // --- Monster handling ---
@@ -405,5 +493,6 @@ void GameMap::updateMap(const json& message)
     cleanMonsterTable();
 
     updateBounds();
+    dump();
     m_didRender = false;
 }

@@ -680,47 +680,116 @@ void displayMap(const GameMap& map, const Player& player)
     ImGui::Spacing();
 
     ImGui::Text("map:");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Export")) {
+        auto t = std::time(nullptr);
+        auto* tm = std::localtime(&t);
+        char buf[64];
+        std::strftime(buf, sizeof(buf), "map_dump_%Y%m%d_%H%M%S.txt", tm);
+        std::ofstream out(buf);
+        if (out) {
+            // GameMap internal data
+            out << "=== GameMap dump ===\n";
+            out << map.dumpString();
+            out << "\nPlayer at (" << player.data().pos_x << "," << player.data().pos_y << ")\n";
+            out << "Look: " << directionToString[player.getFacingDirection()] << "\n";
+
+            // Overlay rendered output (exactly what the player sees)
+            out << "\n=== Overlay rendered grid (TileType ints) ===\n";
+            auto b = map.getBounds();
+            // Column header
+            out << "   ";
+            for (int x = b.x_min; x <= b.x_max; ++x)
+                out << std::format("{:>2}", x % 10);
+            out << "\n";
+            for (int y = b.y_min; y <= b.y_max; ++y) {
+                out << std::format("{:2}: ", y);
+                for (int x = b.x_min; x <= b.x_max; ++x) {
+                    auto typeOpt = map.getTileAt(x, y);
+                    if (!typeOpt) {
+                        out << "  ";
+                    } else {
+                        auto monOpt = map.getMonsterAt(x, y);
+                        if (x == player.data().pos_x && y == player.data().pos_y)
+                            out << std::format("{:>2}", std::format("{}@", static_cast<int>(*typeOpt)));
+                        else if (monOpt)
+                            out << std::format("{:>2}", std::format("{}*", static_cast<int>(*typeOpt)));
+                        else
+                            out << std::format("{:2d}", static_cast<int>(*typeOpt));
+                    }
+                }
+                out << "\n";
+            }
+            // Monster list as shown in overlay
+            out << "\nMonster list from overlay:\n";
+            for (const auto& [pos, monId] : map.monsterPositions()) {
+                auto it = map.monsterTable().find(monId);
+                const char* name = (it != map.monsterTable().end()) ? it->second.name().c_str() : "?";
+                out << std::format("  ({},{}) [id={}] '{}'\n", pos.x, pos.y, monId, name);
+            }
+            spdlog::info("Exported map dump to '{}'", buf);
+        }
+    }
     ImGui::Text("look: %s", directionToString[player.getFacingDirection()]);
     
     auto bounds = map.getBounds();
     for (int y = bounds.y_min; y <= bounds.y_max; ++y) {
         for (int x = bounds.x_min; x <= bounds.x_max; ++x) {
             auto typeOpt = map.getTileAt(x, y);
-            if (!typeOpt) {
-                ImGui::Text(" ");
-                ImGui::SameLine();
-                continue;
+            bool isPlayer = (x == player.data().pos_x && y == player.data().pos_y);
+
+            // Single-character glyph per cell (same scheme as GameMap::dumpString).
+            char glyph = ' ';
+            glm::vec4 color(1, 1, 1, 1);
+            if (typeOpt) {
+                MapType type = *typeOpt;
+                bool vis = map.isVisibleAt(x, y);
+                switch (type) {
+                case MapType::Wall:        glyph = vis ? '#' : '='; color = vis ? glm::vec4(0.5f,0.5f,0.0f,1) : glm::vec4(0.3f,0.3f,0.0f,1); break;
+                case MapType::Floor:       glyph = vis ? '.' : ':'; color = vis ? glm::vec4(0.0f,0.5f,0.0f,1) : glm::vec4(0.0f,0.25f,0.0f,1); break;
+                case MapType::Door:        glyph = vis ? '+' : 'd'; color = glm::vec4(0.5f,0.3f,0.0f,1); break;
+                case MapType::Item:        glyph = vis ? '!' : 'i'; color = glm::vec4(0.8f,0.8f,0.3f,1); break;
+                case MapType::Water:       glyph = vis ? '~' : 'w'; color = glm::vec4(0.0f,0.3f,0.8f,1); break;
+                case MapType::Lava:        glyph = vis ? 'L' : 'l'; color = glm::vec4(0.8f,0.3f,0.0f,1); break;
+                case MapType::Other:       glyph = vis ? 'O' : 'o'; color = glm::vec4(0.0f,0.5f,0.5f,1); break;
+                case MapType::WallMemory:  glyph = '='; color = glm::vec4(0.3f,0.3f,0.0f,1); break;
+                case MapType::FloorMemory: glyph = ':'; color = glm::vec4(0.0f,0.25f,0.0f,1); break;
+                case MapType::Unexplored:  glyph = 'U'; color = glm::vec4(0.5f,0.5f,0.5f,1); break;
+                }
             }
 
-            MapType type = *typeOpt;
-            if (x == 0 && y == 0) {
-                // Blinking red color for player
-                float alpha = (sinf(ImGui::GetTime() * 8.0f) * 0.5f) + 0.5f;
-                ImGui::TextColored(ImVec4(1.0f, 0.0f, 0.0f, alpha), "%d", static_cast<int>(type));
+            // Monster glyph overrides tile glyph
+            auto monOpt = map.getMonsterAt(x, y);
+            if (monOpt) {
+                glyph = 'M';
+                float monAlpha = (sinf(ImGui::GetTime() * 8.0f) * 0.5f) + 0.5f;
+                color = glm::vec4(1.0f, 0.5f, 0.0f, monAlpha);
+            }
 
-                // Draw a small red arrow centered on the player's number,
-                // pointing in the direction of the camera.
+            // Player glyph overrides everything
+            if (isPlayer) {
+                glyph = '@';
+                float alpha = (sinf(ImGui::GetTime() * 8.0f) * 0.5f) + 0.5f;
+                color = glm::vec4(1.0f, 0.0f, 0.0f, alpha);
+            }
+
+            ImGui::TextColored(ImVec4(color.r, color.g, color.b, color.a), "%c", glyph);
+
+            if (isPlayer) {
+                // Draw small red arrow centered on the player marker
                 ImVec2 itemMin = ImGui::GetItemRectMin();
                 ImVec2 itemMax = ImGui::GetItemRectMax();
                 float cx = (itemMin.x + itemMax.x) * 0.5f;
                 float cy = (itemMin.y + itemMax.y) * 0.5f;
-
                 float theta = player.camera().theta;
                 float dirX = cosf(theta);
-                float dirY = -sinf(theta);  // screen y increases downward, North = up
-
-                // Arrow: tail at center (pivot), tip extends in camera direction
+                float dirY = -sinf(theta);
                 float arrowLen = 14.0f;
                 float tipX = cx + dirX * arrowLen;
                 float tipY = cy + dirY * arrowLen;
-
                 ImDrawList* dl = ImGui::GetWindowDrawList();
-                ImU32 arrowColor = IM_COL32(255, 0, 0, 255);
-
-                // Shaft
-                dl->AddLine(ImVec2(cx, cy), ImVec2(tipX, tipY), arrowColor, 1.5f);
-
-                // Arrowhead: small triangle at the tip
+                ImU32 arrowCol = IM_COL32(255, 0, 0, 255);
+                dl->AddLine(ImVec2(cx, cy), ImVec2(tipX, tipY), arrowCol, 1.5f);
                 float headSize = 3.5f;
                 float perpX = -dirY * headSize;
                 float perpY = dirX * headSize;
@@ -728,21 +797,10 @@ void displayMap(const GameMap& map, const Player& player)
                     ImVec2(tipX + dirX * headSize * 0.6f, tipY + dirY * headSize * 0.6f),
                     ImVec2(tipX + perpX, tipY + perpY),
                     ImVec2(tipX - perpX, tipY - perpY),
-                    arrowColor);
-            } else {
-                glm::vec4 color = mapTypeToColor(type);
-                ImGui::TextColored(ImVec4(color.r, color.g, color.b, color.a), "%d", static_cast<int>(type));
+                    arrowCol);
             }
 
-            // Monster marker: flashing '*' if a monster is on this cell
-            auto monOpt = map.getMonsterAt(x, y);
-            if (monOpt) {
-                ImGui::SameLine();
-                float monAlpha = (sinf(ImGui::GetTime() * 8.0f) * 0.5f) + 0.5f;
-                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, monAlpha), "*");
-            }
-
-            ImGui::SameLine();
+            ImGui::SameLine(0.0f, 0.0f);
         }
         ImGui::NewLine();
     }
@@ -752,7 +810,6 @@ void displayMap(const GameMap& map, const Player& player)
     ImGui::SeparatorText("Monsters on map:");
     const auto& monsterTable = map.monsterTable();
     const auto& monsterPositions = map.monsterPositions();
-
     if (monsterPositions.empty()) {
         ImGui::TextDisabled("(no monsters)");
     } else {

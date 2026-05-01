@@ -6,15 +6,6 @@ dcss3d is envisioned to be a 3d renderer webview of a server session [Dungeon Cr
 
 ## Coding Guidelines
 
-- Above all, follow the existing style and general architecture of the surrounding code.
-
-- Before making a set of changes, draft out an implementation plan, including the what and why of the problem. Reach out to me to discuss before beginning implementation.
-- When making changes, ALWAYS stop before making a commit. Reach out to me to discuss what you have implemented and why, we can update and review your implementation plan, and only then will I ask you to make the commit.
-- If you need to test the game, you must stop and ask me to playtest for you. This will be needed to check if whatever issue is fixed. 
-- If you get stuck on a problem, try stepping back and considering the bigger picture. Are all your assumptions correct? Could the issue lie elsewhere? Often spiraling into micro-analysis is unproductive.
-
-- Keep track of your findings and progress in `WORK_NOTES.md`
-
 - Tech stack:
   - C++23 language
   - CMake build system
@@ -27,6 +18,21 @@ dcss3d is envisioned to be a 3d renderer webview of a server session [Dungeon Cr
   - spdlog logging
   - Catch2 unit testing
   - crawl's upstream webtiles api, see `/Volumes/Ext/Code/crawl/crawl-ref/source/webserver/`
+
+- Above all, follow the existing style and general architecture of the surrounding code.
+
+- Before making a set of changes, draft out an implementation plan, including the what and why of the problem. Reach out to me to discuss before beginning implementation.
+- When making changes, ALWAYS stop before making a commit. Reach out to me to discuss what you have implemented and why, we can update and review your implementation plan, and only then will I ask you to make the commit.
+- If you need to test the game, you must stop and ask me to playtest for you. This will be needed to check if whatever issue is fixed. 
+- If you get stuck on a problem, try stepping back and considering the bigger picture. Are all your assumptions correct? Could the issue lie elsewhere? Often spiraling into micro-analysis is unproductive.
+
+- Do not make any commits without explicit approval from the user.
+
+- Add comments to code in sections that are particularly important, confusing, or complicated.
+
+- When in doubt, reference the javascript webtile client for server message handling. Try to match their datastructures and match behavior *exactly*.
+
+- Keep track of your findings and progress in `WORK_NOTES.md`
 
 ## External Documentation
 

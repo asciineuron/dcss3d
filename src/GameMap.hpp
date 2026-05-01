@@ -10,12 +10,34 @@
 #include <unordered_set>
 
 enum class MapType {
-    Wall,
-    Floor,
-    Unexplored,
-    Water,
-    Lava,
-    Other,
+    // Currently visible types — rendered in 3D
+    Wall,         // MF_WALL (2)
+    Floor,        // MF_FLOOR (1)
+    Door,         // MF_DOOR (5)
+    Item,         // MF_ITEM (6)
+    Water,        // MF_WATER (16), MF_DEEP_WATER (22)
+    Lava,         // MF_LAVA (17)
+    Other,        // MF_FEATURE (15), etc.
+
+    // Non-visible types — not rendered in 3D, shown in overlay only
+    WallMemory,   // MF_MAP_WALL (4)
+    FloorMemory,  // MF_MAP_FLOOR (3)
+    Unexplored,   // MF_UNSEEN (0), MF_EXPLORE_HORIZON (26)
+};
+
+// Tile data from the server's "t" field.  Mirrors the JS client's tile data
+// handling — visibility is determined from t.bg flags, not from mf alone.
+struct TileData {
+    uint64_t bg = 0;
+    bool hasBg = false;
+
+    // Background flag constants (from enums.js bg_flags)
+    static constexpr uint64_t UNSEEN    = 0x00040000;
+    static constexpr uint64_t MM_UNSEEN = 0x00020000;
+
+    bool isVisible() const {
+        return hasBg && !(bg & UNSEEN) && !(bg & MM_UNSEEN);
+    }
 };
 
 // also monster items etc. see 'dungeon features'
@@ -28,9 +50,13 @@ public:
     }
 
     MapType type() const { return m_type; };
+    TileData& tileData() { return m_tileData; }
+    const TileData& tileData() const { return m_tileData; }
+    bool isVisible() const { return m_tileData.isVisible(); }
 
 private:
     MapType m_type;
+    TileData m_tileData;
 };
 
 // Represents a monster/creature on the map, storing parsed JSON data from the server.
@@ -133,9 +159,12 @@ public:
     struct Bounds { int x_min, x_max, y_min, y_max; };
     Bounds getBounds() const;
     std::optional<MapType> getTileAt(int x, int y) const;
+    bool isVisibleAt(int x, int y) const;
 
     friend std::ostream& operator<<(std::ostream&, const GameMap&);
     std::string asciiView() const;
+    std::string dumpString() const;  // returns compact grid dump as string
+    void dump() const;  // logs dumpString() at info level
 
 private:
     MapData m_map;

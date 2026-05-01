@@ -235,7 +235,7 @@ int main(int argc, char* argv[])
                 }
             }
 
-            renderer.doRender(map, player.camera()); // imgui layout too
+            renderer.doRender(map, player.camera(), {player.data().pos_x, player.data().pos_y});
 
             // Process ALL input FIRST (keyboard + mouse) before updating position.
             // This ensures velocity changes are always detected, preventing infinite loops

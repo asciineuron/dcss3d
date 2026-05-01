@@ -5,10 +5,14 @@ TEST_CASE("MapType enum has expected values", "[GameMap]")
 {
     REQUIRE(static_cast<int>(MapType::Wall) == 0);
     REQUIRE(static_cast<int>(MapType::Floor) == 1);
-    REQUIRE(static_cast<int>(MapType::Unexplored) == 2);
-    REQUIRE(static_cast<int>(MapType::Water) == 3);
-    REQUIRE(static_cast<int>(MapType::Lava) == 4);
-    REQUIRE(static_cast<int>(MapType::Other) == 5);
+    REQUIRE(static_cast<int>(MapType::Door) == 2);
+    REQUIRE(static_cast<int>(MapType::Item) == 3);
+    REQUIRE(static_cast<int>(MapType::Water) == 4);
+    REQUIRE(static_cast<int>(MapType::Lava) == 5);
+    REQUIRE(static_cast<int>(MapType::Other) == 6);
+    REQUIRE(static_cast<int>(MapType::WallMemory) == 7);
+    REQUIRE(static_cast<int>(MapType::FloorMemory) == 8);
+    REQUIRE(static_cast<int>(MapType::Unexplored) == 9);
 }
 
 TEST_CASE("Tile default constructor sets Other type", "[GameMap]")
@@ -337,4 +341,144 @@ TEST_CASE("GameMap clear also clears monsters", "[GameMap]")
     REQUIRE_FALSE(map.getMonsterAt(0, 0).has_value());
     REQUIRE(map.monsterTable().empty());
     REQUIRE(map.monsterPositions().empty());
+}
+
+// --- Tile visibility tests (t.bg flags) ---
+
+TEST_CASE("Tile has no tile data by default", "[TileData]") {
+    Tile tile(MapType::Floor);
+    REQUIRE_FALSE(tile.tileData().hasBg);
+    REQUIRE_FALSE(tile.isVisible());
+}
+
+TEST_CASE("Tile is visible when t.bg has no UNSEEN/MM_UNSEEN flags", "[TileData]") {
+    Tile tile(MapType::Floor);
+    tile.tileData().bg = 0x00000000;
+    tile.tileData().hasBg = true;
+    REQUIRE(tile.isVisible());
+}
+
+TEST_CASE("Tile is invisible when t.bg has UNSEEN flag", "[TileData]") {
+    Tile tile(MapType::Floor);
+    tile.tileData().bg = 0x00040000;  // UNSEEN
+    tile.tileData().hasBg = true;
+    REQUIRE_FALSE(tile.isVisible());
+}
+
+TEST_CASE("Tile is invisible when t.bg has MM_UNSEEN flag", "[TileData]") {
+    Tile tile(MapType::Floor);
+    tile.tileData().bg = 0x00020000;  // MM_UNSEEN
+    tile.tileData().hasBg = true;
+    REQUIRE_FALSE(tile.isVisible());
+}
+
+TEST_CASE("Tile is invisible when t.bg has both UNSEEN and MM_UNSEEN", "[TileData]") {
+    Tile tile(MapType::Floor);
+    tile.tileData().bg = 0x00060000;  // both
+    tile.tileData().hasBg = true;
+    REQUIRE_FALSE(tile.isVisible());
+}
+
+TEST_CASE("GameMap parses t.bg from map message cell", "[GameMap]") {
+    GameMap map;
+    json mapMsg = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 3}, {"y", 3}, {"mf", 1}, {"t", {{"bg", 3}}}}
+        })}
+    };
+    map.handleMessage(mapMsg);
+    auto tileOpt = map.getTileAt(3, 3);
+    REQUIRE(tileOpt.has_value());
+    REQUIRE(map.isVisibleAt(3, 3));  // bg=3 (typical floor) has no UNSEEN/MM_UNSEEN
+}
+
+TEST_CASE("GameMap cell without t data is not visible", "[GameMap]") {
+    GameMap map;
+    json mapMsg = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"mf", 26}}  // no t field
+        })}
+    };
+    map.handleMessage(mapMsg);
+    auto tileOpt = map.getTileAt(0, 0);
+    REQUIRE(tileOpt.has_value());
+    REQUIRE_FALSE(map.isVisibleAt(0, 0));
+}
+
+TEST_CASE("GameMap mf update does not corrupt tile data", "[GameMap]") {
+    // First: set cell with visible type and tile data
+    GameMap map;
+    json msg1 = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"mf", 1}, {"t", {{"bg", 0}}}}
+        })}
+    };
+    map.handleMessage(msg1);
+    REQUIRE(*map.getTileAt(0, 0) == MapType::Floor);
+    REQUIRE(map.isVisibleAt(0, 0));
+
+    // Second: same cell with mf:26 (unexplored horizon marker)
+    // Tile type updates to Unexplored (trust server), but tile data persists
+    json msg2 = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"mf", 26}}
+        })}
+    };
+    map.handleMessage(msg2);
+    REQUIRE(*map.getTileAt(0, 0) == MapType::Unexplored);
+    // Still visible because t.bg from msg1 is preserved
+    REQUIRE(map.isVisibleAt(0, 0));
+}
+
+TEST_CASE("GameMap preserves tile type when mf absent in update", "[GameMap]") {
+    GameMap map;
+    // Initial: wall with tile data
+    json msg1 = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"mf", 2}, {"t", {{"bg", 0}}}}
+        })}
+    };
+    map.handleMessage(msg1);
+    REQUIRE(*map.getTileAt(0, 0) == MapType::Wall);
+
+    // Update: no mf, just tile data refresh — type preserved
+    json msg2 = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"t", {{"bg", 5}}}}
+        })}
+    };
+    map.handleMessage(msg2);
+    REQUIRE(*map.getTileAt(0, 0) == MapType::Wall);  // type unchanged
+}
+
+TEST_CASE("GameMap combine mf+visibility for rendering decision", "[GameMap]") {
+    // This tests the 3D render filter: cells that are NOT visible should be skipped
+    GameMap map;
+    
+    // Visible wall
+    json msg1 = {{"msg", "map"}, {"cells", json::array({
+        {{"x", 0}, {"y", 0}, {"mf", 2}, {"t", {{"bg", 0}}}}  // visible wall
+    })}};
+    map.handleMessage(msg1);
+    REQUIRE(map.isVisibleAt(0, 0));
+    
+    // Invisible wall (UNSEEN flag)
+    json msg2 = {{"msg", "map"}, {"cells", json::array({
+        {{"x", 1}, {"y", 0}, {"mf", 2}, {"t", {{"bg", 0x00040000}}}}  // UNSEEN wall
+    })}};
+    map.handleMessage(msg2);
+    REQUIRE_FALSE(map.isVisibleAt(1, 0));
+    
+    // Memory floor (mf=3, no t) — not visible
+    json msg3 = {{"msg", "map"}, {"cells", json::array({
+        {{"x", 2}, {"y", 0}, {"mf", 3}}  // FloorMemory, no tile data
+    })}};
+    map.handleMessage(msg3);
+    REQUIRE_FALSE(map.isVisibleAt(2, 0));
 }

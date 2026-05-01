@@ -111,7 +111,7 @@ public:
     void release() override;
 
     void draw(SDL_GPURenderPass*) override;
-    void pushMapData(const GameMap&, SDL_GPUCommandBuffer*); // update with map data
+    void pushMapData(const GameMap&, Pos2<int> playerPos, SDL_GPUCommandBuffer*);
 
 private:
     SDL_GPUBuffer* m_mapDataBuffer {};
@@ -127,7 +127,7 @@ private:
         // sizeof = 32 bytes (matches slot 1 pitch perfectly)
     };
 
-    static constexpr unsigned s_maxRenderCopies = 289; // 15^2 standard, 17^2 max, for Barachi
+    static constexpr unsigned s_maxRenderCopies = 1024; // 32x32 max visible area (15-cell radius)
 };
 
 // Draws a shared model (e.g. monkey) at each monster position on the map.
@@ -178,7 +178,7 @@ public:
     Renderer(Renderer&) = delete;
     Renderer(Renderer&&) = delete;
 
-    void doRender(GameMap&, const Camera&);
+    void doRender(GameMap&, const Camera&, Pos2<int> playerPos);
 
     const uint64_t renderCount() const;
 
@@ -221,7 +221,7 @@ private:
     // Target highlight position in render coords: x=worldX, y=worldY(0), z=worldZ, w=enabled
     glm::vec4 m_targetHighlightPos {0.0f, 0.0f, 0.0f, 0.0f};
 
-    void pushMapToGPU(const GameMap&, SDL_GPUCommandBuffer*);
+    void pushMapToGPU(const GameMap&, Pos2<int> playerPos, SDL_GPUCommandBuffer*);
     void pushMonsterToGPU(const GameMap&, SDL_GPUCommandBuffer*);
     void createDepthTexture();
     void releaseDepthTexture();
