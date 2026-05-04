@@ -786,7 +786,7 @@ MapDisplacedBufferedModel::MapDisplacedBufferedModel(SDL_GPUDevice* gpu, SDL_Win
 void MapDisplacedBufferedModel::pushMapData(const GameMap& map, Pos2<int> playerPos, SDL_GPUCommandBuffer* cmdBuf)
 {
     // Only push cells that the server says are currently visible (t.bg flags).
-    auto isVisible = [](const Tile& tile) {
+    auto shouldRender = [](const Tile& tile) {
         return tile.isVisible();
     };
 
@@ -795,7 +795,7 @@ void MapDisplacedBufferedModel::pushMapData(const GameMap& map, Pos2<int> player
         m_GPUDevice, m_dataTransferBuf, true);
     unsigned idx = 0;
     for (const auto& [mapCoord, tile] : map.map()) {
-        if (!isVisible(tile))
+        if (!shouldRender(tile))
             continue;
 
         glm::vec2 renderCoords2D = mapCoordToRender(mapCoord);
@@ -1097,9 +1097,20 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         .vertex_attributes = vertexAttributes,
         .num_vertex_attributes = 5,             // position + normal + shift + color + UV
     };
+    SDL_GPUColorTargetBlendState blendState = {
+        .enable_blend = true,
+        .src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA,
+        .dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+        .color_blend_op = SDL_GPU_BLENDOP_ADD,
+        .src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE,
+        .dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+        .alpha_blend_op = SDL_GPU_BLENDOP_ADD,
+        .enable_color_write_mask = false,
+    };
     SDL_GPUColorTargetDescription colorTargetDescriptions[] = {
         { .format = SDL_GetGPUSwapchainTextureFormat(
-              m_GPUDevice, window) }
+              m_GPUDevice, window),
+          .blend_state = blendState }
     };
     SDL_GPURasterizerState rasterizer_state = {
         .fill_mode = SDL_GPU_FILLMODE_FILL,    // Filled polygons (not wireframe)

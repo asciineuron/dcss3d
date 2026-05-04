@@ -747,7 +747,8 @@ void displayMap(const GameMap& map, const Player& player)
                 switch (type) {
                 case MapType::Wall:        glyph = vis ? '#' : '='; color = vis ? glm::vec4(0.5f,0.5f,0.0f,1) : glm::vec4(0.3f,0.3f,0.0f,1); break;
                 case MapType::Floor:       glyph = vis ? '.' : ':'; color = vis ? glm::vec4(0.0f,0.5f,0.0f,1) : glm::vec4(0.0f,0.25f,0.0f,1); break;
-                case MapType::Door:        glyph = vis ? '+' : 'd'; color = glm::vec4(0.5f,0.3f,0.0f,1); break;
+                case MapType::Door:        glyph = '+'; color = glm::vec4(0.3f,0.15f,0.0f,1); break;
+                case MapType::OpenDoor:     glyph = '\''; color = glm::vec4(0.3f,0.15f,0.0f,1); break;
                 case MapType::Item:        glyph = vis ? '!' : 'i'; color = glm::vec4(0.8f,0.8f,0.3f,1); break;
                 case MapType::Water:       glyph = vis ? '~' : 'w'; color = glm::vec4(0.0f,0.3f,0.8f,1); break;
                 case MapType::Lava:        glyph = vis ? 'L' : 'l'; color = glm::vec4(0.8f,0.3f,0.0f,1); break;

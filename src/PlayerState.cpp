@@ -233,10 +233,28 @@ std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& 
     if (!wouldCollideNow) {
         m_camera.pos[0] = testPosition[0];
         m_camera.pos[2] = testPosition[1];
-        // spdlog::debug("position updated to ({:.3f}, {:.3f})", m_camera.pos[0], m_camera.pos[2]);
     } else {
+        // Check if blocked by a door specifically — doors open when walked into.
+        int cellX = static_cast<int>(std::floor(testPosition.x));
+        int cellY = static_cast<int>(std::floor(testPosition.y + 1.0f));
+        auto tileOpt = gameMap.getTileAt(cellX, cellY);
+        if (tileOpt && *tileOpt == MapType::Door) {
+            // Determine intended movement direction from displacement
+            Direction intendedDir = None;
+            if (x_disp > 0.01f) intendedDir = (Direction)(intendedDir | East);
+            if (x_disp < -0.01f) intendedDir = (Direction)(intendedDir | West);
+            if (y_disp > 0.01f) intendedDir = (Direction)(intendedDir | South);
+            if (y_disp < -0.01f) intendedDir = (Direction)(intendedDir | North);
+            if (intendedDir != None) {
+                spdlog::debug("door collision, sending turn: {}", directionToString[intendedDir]);
+                // Reset camera to center of current player cell
+                glm::vec2 center = mapCoordToRender({ m_data.pos_x, m_data.pos_y });
+                m_camera.pos[0] = center.x;
+                m_camera.pos[2] = center.y;
+                return std::make_unique<MoveTurn>(intendedDir);
+            }
+        }
         spdlog::debug("collision prevented, position unchanged");
-        // No position change since blocked by wall, no turn needed
         return nullptr;
     }
 

@@ -57,7 +57,8 @@ glm::vec4 mapTypeToColor(MapType type)
     switch (type) {
     case Wall:        return { 0.5f, 0.5f, 0.0f, 1.0f };
     case Floor:       return { 0.0f, 0.5f, 0.0f, 1.0f };
-    case Door:        return { 0.5f, 0.3f, 0.0f, 1.0f };  // brown
+    case Door:        return { 0.3f, 0.15f, 0.0f, 1.0f };  // dark brown
+    case OpenDoor:     return { 0.3f, 0.15f, 0.0f, 1.0f };
     case Item:        return { 0.8f, 0.8f, 0.3f, 1.0f };  // bright yellow
     case WallMemory:  return { 0.3f, 0.3f, 0.0f, 1.0f };
     case FloorMemory: return { 0.0f, 0.25f, 0.0f, 1.0f };
@@ -82,7 +83,10 @@ bool GameMap::wouldCollide(const glm::vec2& testLoc) const
     auto tileIt = m_map.find({cellX, cellY});
     if (tileIt != m_map.end()) {
         MapType type = tileIt->second.type();
-        if (type == MapType::Wall || type == MapType::WallMemory || type == MapType::Other) {
+        bool isBlocked =
+            type == MapType::Wall || type == MapType::WallMemory ||
+            type == MapType::Door || type == MapType::Other;
+        if (isBlocked) {
             spdlog::debug("collision at ({}, {}): type={}", cellX, cellY, static_cast<int>(type));
             return true;
         }
@@ -245,7 +249,8 @@ std::string GameMap::dumpString() const
         switch (tile.type()) {
         case MapType::Wall:        c = vis ? '#' : '='; break;
         case MapType::Floor:       c = vis ? '.' : ':'; break;
-        case MapType::Door:        c = vis ? '+' : 'd'; break;
+        case MapType::Door:        c = '+'; break;
+        case MapType::OpenDoor:     c = '\''; break;
         case MapType::Item:        c = vis ? '!' : 'i'; break;
         case MapType::WallMemory:  c = '='; break;
         case MapType::FloorMemory: c = ':'; break;
@@ -317,6 +322,22 @@ std::optional<MapType> GameMap::getTileAt(int x, int y) const
         return it->second.type();
     }
     return std::nullopt;
+}
+
+bool GameMap::isOpenDoorAt(int x, int y) const
+{
+    auto it = m_map.find({ x, y });
+    return it != m_map.end() && it->second.type() == MapType::Door && it->second.tileData().isOpenDoor();
+}
+
+void GameMap::setTileType(int x, int y, MapType type)
+{
+    auto it = m_map.find({ x, y });
+    if (it != m_map.end()) {
+        TileData saved = it->second.tileData();
+        it->second = Tile(type);
+        it->second.tileData() = saved;
+    }
 }
 
 bool GameMap::isVisibleAt(int x, int y) const
@@ -414,11 +435,22 @@ void GameMap::updateMap(const json& message)
                 if (bg->is_number()) {
                     td.bg = bg->get<uint64_t>();
                 } else if (bg->is_array() && bg->size() >= 1) {
-                    // t.bg can be sent as [low32, high32] array
                     td.bg = (*bg)[0].get<uint64_t>();
                     if (bg->size() >= 2)
                         td.bg |= static_cast<uint64_t>((*bg)[1].get<uint32_t>()) << 32;
                 }
+            }
+        }
+
+        // Parse dungeon feature (f field) — used for open-door detection etc.
+        if (auto f = cell.find("f"); f != cell.end() && f->is_number()) {
+            int feat = f->get<int>();
+            m_map[pos].tileData().feature = feat;
+            // Promote closed Door to OpenDoor when server sends open-door feature
+            if (feat == TileData::DNGN_OPEN_DOOR && m_map[pos].type() == MapType::Door) {
+                TileData saved = m_map[pos].tileData();
+                m_map[pos] = Tile(MapType::OpenDoor);
+                m_map[pos].tileData() = saved;
             }
         }
 

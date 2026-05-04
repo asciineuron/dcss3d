@@ -13,7 +13,8 @@ enum class MapType {
     // Currently visible types — rendered in 3D
     Wall,         // MF_WALL (2)
     Floor,        // MF_FLOOR (1)
-    Door,         // MF_DOOR (5)
+    Door,         // MF_DOOR (5) — closed
+    OpenDoor,     // open door (f:34) — passable, transparent
     Item,         // MF_ITEM (6)
     Water,        // MF_WATER (16), MF_DEEP_WATER (22)
     Lava,         // MF_LAVA (17)
@@ -30,13 +31,21 @@ enum class MapType {
 struct TileData {
     uint64_t bg = 0;
     bool hasBg = false;
+    int feature = 0;  // dungeon feature enum (server "f" field)
 
     // Background flag constants (from enums.js bg_flags)
     static constexpr uint64_t UNSEEN    = 0x00040000;
     static constexpr uint64_t MM_UNSEEN = 0x00020000;
 
+    // Dungeon feature constants (from crawl enum.h)
+    static constexpr int DNGN_OPEN_DOOR = 34;
+
     bool isVisible() const {
         return hasBg && !(bg & UNSEEN) && !(bg & MM_UNSEEN);
+    }
+
+    bool isOpenDoor() const {
+        return feature == DNGN_OPEN_DOOR;
     }
 };
 
@@ -159,7 +168,9 @@ public:
     struct Bounds { int x_min, x_max, y_min, y_max; };
     Bounds getBounds() const;
     std::optional<MapType> getTileAt(int x, int y) const;
+    void setTileType(int x, int y, MapType type);
     bool isVisibleAt(int x, int y) const;
+    bool isOpenDoorAt(int x, int y) const;
 
     friend std::ostream& operator<<(std::ostream&, const GameMap&);
     std::string asciiView() const;
