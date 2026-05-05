@@ -1,5 +1,6 @@
 #include "Renderer.hpp"
 #include "GameMap.hpp"
+#include "MonsterModelMap.hpp"
 #include "WindowManager.hpp"
 #include "imguilayouts.hpp"
 #include "imgui.h"
@@ -259,7 +260,7 @@ void Renderer::pushMonsterToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf
             continue;
 
         const Monster& mon = tableIt->second;
-        const std::string& modelFile = getModelFileForType(mon);
+        const std::string& modelFile = getMonsterModelFile(mon);
         grouped[modelFile].push_back({pos, &mon});
     }
 
@@ -857,44 +858,6 @@ MapDisplacedBufferedModel::~MapDisplacedBufferedModel()
     release();
 }
 // --- Monster Model Cache ----------------------------------------------------
-
-const std::string& Renderer::getModelFileForType(const Monster& mon)
-{
-    static const std::string s_defaultModel = "monkey.obj";
-
-    // Monster type enum → OBJ model file mapping.
-    // Type values are from crawl's monster-type.h (TAG_MAJOR_VERSION 34).
-    // Add entries here as new models become available.
-    // Monster type enum values from crawl monster-type.h (TAG_MAJOR_VERSION 34).
-    // Verified via: g++ -DTAG_MAJOR_VERSION=34 -I. -E monster-type.h
-    static const std::unordered_map<int, std::string> s_typeModelMap = {
-        // Bat family
-        {   6, "marble_bust_01_1k.obj" },       // MONS_BAT
-        {   7, "marble_bust_01_1k.obj" },       // MONS_FIRE_BAT
-        // Jackal
-        {  21, "concrete_cat_statue_1k.obj" },  // MONS_JACKAL
-        // Giant Cockroach
-        { 110, "icosphere.obj" },               // MONS_GIANT_COCKROACH
-        // Hobgoblin
-        { 182, "monkey.obj" },                  // MONS_HOBGOBLIN
-        // Gnoll family
-        { 183, "bull_head_1k.obj" },            // MONS_GNOLL
-        { 184, "bull_head_1k.obj" },            // MONS_GNOLL_BOUDA
-        { 185, "bull_head_1k.obj" },            // MONS_GNOLL_SERGEANT
-        // Kobold family
-        { 187, "rubber_duck_toy_1k.obj" },      // MONS_KOBOLD
-        { 188, "rubber_duck_toy_1k.obj" },      // MONS_KOBOLD_BRIGAND
-        { 189, "rubber_duck_toy_1k.obj" },      // MONS_KOBOLD_DEMONOLOGIST
-    };
-
-    spdlog::debug("getModelFileForType: name='{}' type={} btype={}",
-                  mon.name(), mon.type(), mon.btype());
-
-    auto it = s_typeModelMap.find(mon.type());
-    if (it != s_typeModelMap.end())
-        return it->second;
-    return s_defaultModel;
-}
 
 MonsterBufferedModel* Renderer::getOrCreateMonsterModel(const std::string& modelFile)
 {

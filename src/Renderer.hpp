@@ -204,11 +204,6 @@ private:
     std::unordered_map<std::string, std::unique_ptr<MonsterBufferedModel>> m_monsterModelCache;
     MonsterBufferedModel* getOrCreateMonsterModel(const std::string& modelFile);
 
-    // Resolves which OBJ model file to use for a given monster.
-    // Uses btype (polymorph/dervied base) if available, otherwise type.
-    // Returns a reference to a static string literal.
-    static const std::string& getModelFileForType(const Monster& mon);
-
     SDL_WindowID m_windowID {};
     int m_windowWidth {};
     int m_windowHeight {};
