@@ -40,6 +40,12 @@ target_sources(dcss3d_obj PRIVATE
 	src/AudioManager.hpp
 	src/AudioManager.cpp
 
+	src/InputModeTracker.hpp
+	src/InputModeTracker.cpp
+
+	src/MessageLog.hpp
+	src/MessageLog.cpp
+
 	src/debug.hpp
 	src/debug.cpp
 
@@ -220,10 +226,13 @@ target_sources(dcss3d_tests PRIVATE
     tests/main.cpp
     tests/test_game_map.cpp
     tests/test_turn.cpp
+    tests/test_input_mode.cpp
     tests/test_player_state.cpp
     tests/test_audio_manager.cpp
     tests/test_window_manager.cpp
     tests/test_character_select.cpp
+    src/InputModeTracker.cpp
+    src/MessageLog.cpp
     src/WindowManager.cpp
     src/CharacterSelect.cpp
     src/GameMap.cpp

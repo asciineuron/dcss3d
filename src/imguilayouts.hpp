@@ -1,5 +1,6 @@
 #pragma once
 #include "CharacterSelect.hpp"
+#include "MessageLog.hpp"
 #include "PlayerState.hpp"
 #include <cstdint>
 #include <string>
@@ -66,6 +67,7 @@ bool PinButton(const char* windowName);
 // Visibility is controlled by WindowManager (mode) plus pin state in Normal mode.
 void displayAllWindows(const Player& player, const GameMap& map,
                        NetworkManager& networkManager, Renderer& renderer,
+                       const MessageLog& messageLog,
                        const char* layoutFilename);
 
 void displayPlayer(const Player&);
@@ -73,6 +75,8 @@ void displayPlayer(const Player&);
 void displayEquipment(const Player&);
 
 void displayMap(const GameMap&, const Player&);
+
+void displayMessageLog(const MessageLog&);
 
 void networkMenu(NetworkManager&);
 

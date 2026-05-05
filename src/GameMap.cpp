@@ -65,9 +65,9 @@ glm::vec4 mapTypeToColor(MapType type)
     case Unexplored:  return { 0.5f, 0.5f, 0.5f, 1.0f };
     case Water:       return { 0.0f, 0.3f, 0.8f, 1.0f };
     case Lava:        return { 0.8f, 0.3f, 0.0f, 1.0f };
-    case StairUp:     return { 1.0f, 0.4f, 0.6f, 1.0f  }; // pink
-    case StairDown:   return { 1.0f, 0.4f, 0.6f, 1.0f };
-    case StairBranch: return { 1.0f, 0.4f, 0.6f, 1.0f };
+    case StairUp:     return { 0.9f, 0.9f, 0.95f, 1.0f }; // bright white with blue tint
+    case StairDown:   return { 1.0f, 0.4f, 0.6f, 1.0f };  // pink
+    case StairBranch: return { 0.8f, 0.2f, 0.9f, 1.0f };  // bright magenta
     case Other:       return { 0.0f, 0.5f, 0.5f, 1.0f };
     }
     return { 0.4f, 0.1f, 0.6f, 0.7f }; // fallback

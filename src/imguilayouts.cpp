@@ -35,6 +35,7 @@ WindowLayoutCallback g_windowLayoutCallback = nullptr;
 std::unordered_map<std::string, bool> g_pinState = {
     {"map", true},
     {"player", true},
+    {"log", true},
 };
 
 // Strip DCSS color tags like <brown>, <lightgreen>, <w> from a string
@@ -126,6 +127,7 @@ static void applyResetLayout(const char* windowName, int index)
 
 void displayAllWindows(const Player& player, const GameMap& map,
                        NetworkManager& networkManager, Renderer& renderer,
+                       const MessageLog& messageLog,
                        const char* layoutFilename)
 {
     WindowManager& wm = WindowManager::instance();
@@ -224,27 +226,37 @@ void displayAllWindows(const Player& player, const GameMap& map,
         displayMap(map, player);
     }
 
-    // Network window (index 2)
+    // Message log window (index 2)
+    if (showWindow("log")) {
+        if (shouldReset) {
+            applyResetLayout("log", 2);
+        } else if (pendingLayout && pendingLayoutCount > 0) {
+            applyLayoutForWindow("log", pendingLayout, pendingLayoutCount);
+        }
+        displayMessageLog(messageLog);
+    }
+
+    // Network window (index 3)
     if (showWindow("network")) {
         if (shouldReset) {
-            applyResetLayout("network", 2);
+            applyResetLayout("network", 3);
         } else if (pendingLayout && pendingLayoutCount > 0) {
             applyLayoutForWindow("network", pendingLayout, pendingLayoutCount);
         }
         networkMenu(networkManager);
     }
 
-    // Renderer window (index 3)
+    // Renderer window (index 4)
     if (showWindow("renderer")) {
         if (shouldReset) {
-            applyResetLayout("renderer", 3);
+            applyResetLayout("renderer", 4);
         } else if (pendingLayout && pendingLayoutCount > 0) {
             applyLayoutForWindow("renderer", pendingLayout, pendingLayoutCount);
         }
         renderMenu(renderer);
     }
 
-    // Settings window (index 4)
+    // Settings window (index 5)
     if (showWindow("settings")) {
         if (shouldReset) {
             applyResetLayout("settings", 4);
@@ -833,6 +845,38 @@ void displayMap(const GameMap& map, const Player& player)
         }
     }
 
+    ImGui::End();
+}
+
+void displayMessageLog(const MessageLog& messageLog)
+{
+    // Default size: wide enough for crawl messages, tall enough to see context
+    ImGui::SetNextWindowSize(ImVec2(520, 180), ImGuiCond_Once);
+    ImGui::Begin("log");
+    PinButton("log");
+    ImGui::Spacing();
+
+    auto lines = messageLog.getLines();
+
+    // Track line count to detect new content for auto-scroll
+    static uint64_t s_lastLineCount = 0;
+    uint64_t currentCount = messageLog.lineCount();
+    bool newContent = (currentCount != s_lastLineCount);
+    s_lastLineCount = currentCount;
+
+    ImGui::BeginChild("log_scroll", ImVec2(0, 0), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    for (const auto& line : lines) {
+        std::string stripped = stripColorTags(line);
+        ImGui::TextUnformatted(stripped.c_str());
+    }
+
+    // Auto-scroll to bottom when new lines arrive
+    if (newContent && !lines.empty())
+        ImGui::SetScrollHereY(1.0f);
+
+    ImGui::EndChild();
     ImGui::End();
 }
 
