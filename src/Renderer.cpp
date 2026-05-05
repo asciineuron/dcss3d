@@ -559,7 +559,7 @@ BufferedModel::BufferedModel(SDL_GPUDevice* gpu, SDL_Window* window, std::unique
     , m_textureFilename { textureFilename }
     // Vertex data: position (16 bytes) + normal (16 bytes) + UV (16 bytes) = 48 bytes per vertex
     , m_vertexBufSize { static_cast<Uint32>(48 * (m_model->vertices().size())) }
-    , m_indexBufSize { static_cast<Uint16>(sizeof(Uint16) * 3 * m_model->faces().size()) }
+    , m_indexBufSize { static_cast<Uint32>(sizeof(Uint16) * 3 * m_model->faces().size()) }
     , m_drawBufSize { sizeof(SDL_GPUIndexedIndirectDrawCommand) * 1 }
 {
     m_pipeline = createGraphicsPipelineWithShaders(window, vertex, fragment);
@@ -862,23 +862,36 @@ const std::string& Renderer::getModelFileForType(const Monster& mon)
 {
     static const std::string s_defaultModel = "monkey.obj";
 
-    // Name → OBJ model file mapping (version-agnostic, always available).
+    // Monster type enum → OBJ model file mapping.
+    // Type values are from crawl's monster-type.h (TAG_MAJOR_VERSION 34).
     // Add entries here as new models become available.
-    static const std::unordered_map<std::string, std::string> s_nameModelMap = {
-        { "bat",       "icosphere.obj" },
-        { "fire bat",  "icosphere.obj" },
-        // Examples for future models:
-        // { "rat",     "rat.obj"     },
-        // { "goblin",  "goblin.obj"  },
-        // { "kobold",  "kobold.obj"  },
-        // { "orc",     "orc.obj"     },
+    // Monster type enum values from crawl monster-type.h (TAG_MAJOR_VERSION 34).
+    // Verified via: g++ -DTAG_MAJOR_VERSION=34 -I. -E monster-type.h
+    static const std::unordered_map<int, std::string> s_typeModelMap = {
+        // Bat family
+        {   6, "marble_bust_01_1k.obj" },       // MONS_BAT
+        {   7, "marble_bust_01_1k.obj" },       // MONS_FIRE_BAT
+        // Jackal
+        {  21, "concrete_cat_statue_1k.obj" },  // MONS_JACKAL
+        // Giant Cockroach
+        { 110, "icosphere.obj" },               // MONS_GIANT_COCKROACH
+        // Hobgoblin
+        { 182, "monkey.obj" },                  // MONS_HOBGOBLIN
+        // Gnoll family
+        { 183, "bull_head_1k.obj" },            // MONS_GNOLL
+        { 184, "bull_head_1k.obj" },            // MONS_GNOLL_BOUDA
+        { 185, "bull_head_1k.obj" },            // MONS_GNOLL_SERGEANT
+        // Kobold family
+        { 187, "rubber_duck_toy_1k.obj" },      // MONS_KOBOLD
+        { 188, "rubber_duck_toy_1k.obj" },      // MONS_KOBOLD_BRIGAND
+        { 189, "rubber_duck_toy_1k.obj" },      // MONS_KOBOLD_DEMONOLOGIST
     };
 
     spdlog::debug("getModelFileForType: name='{}' type={} btype={}",
                   mon.name(), mon.type(), mon.btype());
 
-    auto it = s_nameModelMap.find(mon.name());
-    if (it != s_nameModelMap.end())
+    auto it = s_typeModelMap.find(mon.type());
+    if (it != s_typeModelMap.end())
         return it->second;
     return s_defaultModel;
 }
