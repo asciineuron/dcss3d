@@ -55,7 +55,9 @@ main_out main(main_in input)
     } else if (int(input.shiftData.z) == map_type::MTYPE_FLOOR
             || int(input.shiftData.z) == map_type::MTYPE_OPEN_DOOR
             || int(input.shiftData.z) == map_type::MTYPE_FLOOR_MEMORY
-            || int(input.shiftData.z) == map_type::MTYPE_UNEXPLORED) {
+            || int(input.shiftData.z) == map_type::MTYPE_UNEXPLORED
+            || int(input.shiftData.z) == map_type::MTYPE_ITEM
+            || int(input.shiftData.z) == map_type::MTYPE_OTHER) {
         shiftY = -1.0f;
     }
 

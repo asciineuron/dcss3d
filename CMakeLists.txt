@@ -22,6 +22,8 @@ target_sources(dcss3d_obj PRIVATE
 	src/PlayerState.cpp
 	src/MonsterModelMap.hpp
 	src/MonsterModelMap.cpp
+	src/ObjectModelMap.hpp
+	src/ObjectModelMap.cpp
 	src/Renderer.hpp
 	src/Renderer.cpp
 	src/ShaderUtil.hpp

@@ -85,6 +85,7 @@ public:
 
     int type() const { return m_type; }
     int att() const { return m_att; }
+    void setAtt(int a) { m_att = a; }
     int threat() const { return m_threat; }
     const std::string& name() const { return m_name; }
     const std::string& plural() const { return m_plural; }
@@ -136,6 +137,12 @@ struct hash<Pos2<int>> {
 };
 };
 
+// Tracks an inanimate object (item, corpse, feature) at a map cell.
+// Stored separately from the floor tile so we can render a 3D model on top.
+struct ObjectInfo {
+    int mf = 0;  // map_feature value (MF_ITEM=6, MF_FEATURE=15, etc.)
+};
+
 // int or float?
 class GameMap : public MessageHandler {
 public:
@@ -147,6 +154,9 @@ public:
     //   m_monsterTable: monster ID → full Monster data (the global table)
     using MonsterPosMap = std::unordered_map<Pos2<int>, uint32_t>;
     using MonsterTable = std::unordered_map<uint32_t, Monster>;
+
+    // Object storage: items, corpses, features (plants, statues, traps, etc.)
+    using ObjectMap = std::unordered_map<Pos2<int>, ObjectInfo>;
 
     void handleMessage(const json& message) override;
 
@@ -160,6 +170,9 @@ public:
     const MonsterPosMap& monsterPositions() const { return m_monsters; }
     const MonsterTable& monsterTable() const { return m_monsterTable; }
     std::optional<std::reference_wrapper<const Monster>> getMonsterAt(int x, int y) const;
+
+    // Object accessors
+    const ObjectMap& objectPositions() const { return m_objects; }
 
     // check if rendered since last handleMessage() potential update:
     bool didRender() const { return m_didRender; };
@@ -181,6 +194,7 @@ private:
     MapData m_map;
     MonsterPosMap m_monsters;       // position → monster ID
     MonsterTable m_monsterTable;     // monster ID → Monster data
+    ObjectMap m_objects;             // position → inanimate object info
     bool m_didRender {};
     Bounds m_bounds { 0, 0, 0, 0 };
     void updateMap(const json& message); // call from handleMessage()
