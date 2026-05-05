@@ -61,7 +61,9 @@ main_out main(main_in input)
             || int(input.shiftData.z) == map_type::MTYPE_STAIR_DOWN
             || int(input.shiftData.z) == map_type::MTYPE_STAIR_BRANCH
             || int(input.shiftData.z) == map_type::MTYPE_FLOOR_MEMORY
-            || int(input.shiftData.z) == map_type::MTYPE_UNEXPLORED) {
+            || int(input.shiftData.z) == map_type::MTYPE_UNEXPLORED
+            || int(input.shiftData.z) == map_type::MTYPE_ITEM
+            || int(input.shiftData.z) == map_type::MTYPE_OTHER) {
         shiftY = -1.0f;
     }
 

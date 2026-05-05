@@ -141,6 +141,13 @@ void GameMap::shift(Direction moveDir)
     }
     m_monsters = std::move(nextMonsters);
 
+    // Shift object positions
+    ObjectMap nextObjects;
+    for (const auto& [pos, info] : m_objects) {
+        nextObjects[{pos.x + dx, pos.y + dy}] = info;
+    }
+    m_objects = std::move(nextObjects);
+
     updateBounds();
     m_didRender = false;
 }
@@ -153,6 +160,7 @@ void GameMap::shift(Direction moveDir)
 // MF_PORTAL=23, MF_TRANSPORTER*=24-25, MF_EXPLORE_HORIZON=26.
 MapType mapTypeFromMF(int mf)
 {
+    // TODO: fix case  6: return Item; case 15: return Other; to handle correctly
     using enum MapType;
     switch (mf) {
     case  0: return Unexplored;   // MF_UNSEEN
@@ -161,7 +169,7 @@ MapType mapTypeFromMF(int mf)
     case  3: return FloorMemory;   // MF_MAP_FLOOR
     case  4: return WallMemory;    // MF_MAP_WALL
     case  5: return Door;          // MF_DOOR
-    case  6: return Item;          // MF_ITEM
+    case  6: return Floor;         // MF_ITEM — 3D model on top
     case  7: return Floor;         // MF_MONS_FRIENDLY
     case  8: return Floor;         // MF_MONS_PEACEFUL
     case  9: return Floor;         // MF_MONS_NEUTRAL
@@ -170,7 +178,7 @@ MapType mapTypeFromMF(int mf)
     case 12: return StairUp;       // MF_STAIR_UP
     case 13: return StairDown;     // MF_STAIR_DOWN
     case 14: return StairBranch;   // MF_STAIR_BRANCH
-    case 15: return Other;         // MF_FEATURE
+    case 15: return Floor;         // MF_FEATURE — 3D model on top
     case 16: return Water;         // MF_WATER
     case 17: return Lava;          // MF_LAVA
     case 18: return Other;         // MF_TRAP
@@ -266,6 +274,7 @@ std::string GameMap::dumpString() const
         case MapType::Other:       c = vis ? 'O' : 'o'; break;
         }
         if (m_monsters.contains(pos)) c = 'M';
+        else if (m_objects.contains(pos)) c = 'O';
         grid[gy * w + gx] = c;
     }
 
@@ -396,6 +405,7 @@ void GameMap::updateMap(const json& message)
         m_map.clear();
         m_monsters.clear();
         m_monsterTable.clear();
+        m_objects.clear();
     }
 
     int curX;
@@ -413,7 +423,8 @@ void GameMap::updateMap(const json& message)
         // Mirror JavaScript merge(): for each property in the cell, update the
         // stored entry.  mf determines tile type; t.bg determines visibility.
         if (auto mf = cell.find("mf"); mf != cell.end()) {
-            MapType newType = mapTypeFromMF(mf.value());
+            int mfVal = mf.value();
+            MapType newType = mapTypeFromMF(mfVal);
             auto it = m_map.find(pos);
             if (it == m_map.end()) {
                 m_map[pos] = Tile(newType);
@@ -428,6 +439,16 @@ void GameMap::updateMap(const json& message)
             // Mark as seen if the cell is known (not UNSEEN, not EXPLORE_HORIZON)
             if (newType != MapType::Unexplored) {
                 m_map[pos].setSeen(true);
+            }
+
+            // Track inanimate objects: MF_ITEM (6) and MF_FEATURE (15)
+            // are rendered as 3D models on top of the floor tile.
+            if (mfVal == 6 || mfVal == 15) {
+                m_objects[pos] = { mfVal };
+                spdlog::debug("object added at ({},{}) mf={}", pos.x, pos.y, mfVal);
+            } else {
+                if (m_objects.erase(pos))
+                    spdlog::debug("object removed at ({},{}) mf={}", pos.x, pos.y, mfVal);
             }
         } else if (!m_map.contains(pos)) {
             // Cell is new to us but has no mf — create with Unexplored so the
@@ -475,7 +496,10 @@ void GameMap::updateMap(const json& message)
             continue;
         }
 
-        // "mon" is an object — partial or full update
+        // "mon" is an object — partial or full update.
+        // A monster at this cell takes visual precedence over any object.
+        m_objects.erase(pos);
+
         const json& monJson = *monIt;
         uint32_t monId = 0;
         if (auto idIt = monJson.find("id"); idIt != monJson.end()) {

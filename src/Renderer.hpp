@@ -199,15 +199,15 @@ private:
     std::unique_ptr<MapDisplacedBufferedModel> m_mapCubeModel;
     std::unique_ptr<Skybox> m_skybox;
 
-    // Model cache: keyed by OBJ filename, so multiple monster types can share the same geometry.
-    // Lazily populated via getOrCreateMonsterModel().
+    // Model cache for monsters: keyed by OBJ filename.
     std::unordered_map<std::string, std::unique_ptr<MonsterBufferedModel>> m_monsterModelCache;
     MonsterBufferedModel* getOrCreateMonsterModel(const std::string& modelFile);
 
-    // Resolves which OBJ model file to use for a given monster.
-    // Uses btype (polymorph/dervied base) if available, otherwise type.
-    // Returns a reference to a static string literal.
-    static const std::string& getModelFileForType(const Monster& mon);
+    // Separate cache for inanimate objects (items, corpses, features).
+    // Must be separate so object instance data is not overwritten when a monster
+    // and an object share the same OBJ file (e.g. both using icosphere.obj).
+    std::unordered_map<std::string, std::unique_ptr<MonsterBufferedModel>> m_objectModelCache;
+    MonsterBufferedModel* getOrCreateObjectModel(const std::string& modelFile);
 
     SDL_WindowID m_windowID {};
     int m_windowWidth {};
@@ -223,6 +223,7 @@ private:
 
     void pushMapToGPU(const GameMap&, Pos2<int> playerPos, SDL_GPUCommandBuffer*);
     void pushMonsterToGPU(const GameMap&, SDL_GPUCommandBuffer*);
+    void pushObjectsToGPU(const GameMap&, SDL_GPUCommandBuffer*);
     void createDepthTexture();
     void releaseDepthTexture();
 

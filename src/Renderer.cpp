@@ -1,5 +1,7 @@
 #include "Renderer.hpp"
 #include "GameMap.hpp"
+#include "MonsterModelMap.hpp"
+#include "ObjectModelMap.hpp"
 #include "WindowManager.hpp"
 #include "imguilayouts.hpp"
 #include "imgui.h"
@@ -150,6 +152,7 @@ void Renderer::doRender(GameMap& map, const Camera& camera, Pos2<int> playerPos)
         if (!map.didRender()) {
             pushMapToGPU(map, playerPos, commandBuffer);
             pushMonsterToGPU(map, commandBuffer);
+            pushObjectsToGPU(map, commandBuffer);
             map.setDidRender(true);
         }
 
@@ -197,8 +200,14 @@ void Renderer::doRender(GameMap& map, const Camera& camera, Pos2<int> playerPos)
         glm::vec4 playerPos2D(camera.pos.x, camera.pos.z, 0.0f, 0.0f);
         SDL_PushGPUVertexUniformData(commandBuffer, 1, glm::value_ptr(playerPos2D), sizeof(playerPos2D));
 
-        // Draw monsters on top (depth-tested, same pass) — one draw per model type
+        // Draw monsters first (depth-tested, same pass)
         for (auto& [file, model] : m_monsterModelCache) {
+            model->draw(scenePass);
+        }
+
+        // Draw inanimate objects on top — same instanced model scheme
+        for (auto& [file, model] : m_objectModelCache) {
+            spdlog::debug("drawing object model '{}'", file);
             model->draw(scenePass);
         }
 
@@ -259,7 +268,7 @@ void Renderer::pushMonsterToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf
             continue;
 
         const Monster& mon = tableIt->second;
-        const std::string& modelFile = getModelFileForType(mon);
+        const std::string& modelFile = getMonsterModelFile(mon);
         grouped[modelFile].push_back({pos, &mon});
     }
 
@@ -270,6 +279,43 @@ void Renderer::pushMonsterToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf
     }
 }
 
+void Renderer::pushObjectsToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf)
+{
+    const auto& objects = map.objectPositions();
+    spdlog::debug("pushObjectsToGPU: {} objects in map", objects.size());
+    if (objects.empty())
+        return;
+
+    // Debug: log each object position and mf
+    for (const auto& [pos, info] : objects) {
+        spdlog::debug("  object at ({},{}) mf={}", pos.x, pos.y, info.mf);
+    }
+
+    // Group object positions by their OBJ model file (keyed by mf → model).
+    std::unordered_map<std::string, std::vector<Pos2<int>>> grouped;
+    for (const auto& [pos, info] : objects) {
+        const std::string& modelFile = getObjectModelFile(info.mf);
+        grouped[modelFile].push_back(pos);
+    }
+
+    spdlog::debug("pushObjectsToGPU: {} model groups", grouped.size());
+
+    // Reuse MonsterBufferedModel for rendering — objects are just instanced
+    // models with a neutral colour.  We use a dummy Monster with att=6
+    // (outside the defined 0-5 range) to hit the default grey colour branch.
+    static Monster s_dummyObject;
+    s_dummyObject.setAtt(6);
+
+    for (auto& [modelFile, positions] : grouped) {
+        spdlog::debug("  group '{}' with {} positions", modelFile, positions.size());
+        MonsterBufferedModel* model = getOrCreateObjectModel(modelFile);
+        std::vector<std::pair<Pos2<int>, const Monster*>> dummy;
+        dummy.reserve(positions.size());
+        for (const auto& pos : positions)
+            dummy.push_back({pos, &s_dummyObject});
+        model->pushMonsterData(dummy, cmdBuf);
+    }
+}
 Renderer::~Renderer()
 {
     // shared ptrs automatically deleted with proper funcs
@@ -282,6 +328,12 @@ Renderer::~Renderer()
         model->release();
     }
     m_monsterModelCache.clear();
+
+    // Release all cached object models
+    for (auto& [file, model] : m_objectModelCache) {
+        model->release();
+    }
+    m_objectModelCache.clear();
 
     releaseDepthTexture();
 
@@ -559,7 +611,7 @@ BufferedModel::BufferedModel(SDL_GPUDevice* gpu, SDL_Window* window, std::unique
     , m_textureFilename { textureFilename }
     // Vertex data: position (16 bytes) + normal (16 bytes) + UV (16 bytes) = 48 bytes per vertex
     , m_vertexBufSize { static_cast<Uint32>(48 * (m_model->vertices().size())) }
-    , m_indexBufSize { static_cast<Uint16>(sizeof(Uint16) * 3 * m_model->faces().size()) }
+    , m_indexBufSize { static_cast<Uint32>(sizeof(Uint16) * 3 * m_model->faces().size()) }
     , m_drawBufSize { sizeof(SDL_GPUIndexedIndirectDrawCommand) * 1 }
 {
     m_pipeline = createGraphicsPipelineWithShaders(window, vertex, fragment);
@@ -869,31 +921,6 @@ MapDisplacedBufferedModel::~MapDisplacedBufferedModel()
 }
 // --- Monster Model Cache ----------------------------------------------------
 
-const std::string& Renderer::getModelFileForType(const Monster& mon)
-{
-    static const std::string s_defaultModel = "monkey.obj";
-
-    // Name → OBJ model file mapping (version-agnostic, always available).
-    // Add entries here as new models become available.
-    static const std::unordered_map<std::string, std::string> s_nameModelMap = {
-        { "bat",       "icosphere.obj" },
-        { "fire bat",  "icosphere.obj" },
-        // Examples for future models:
-        // { "rat",     "rat.obj"     },
-        // { "goblin",  "goblin.obj"  },
-        // { "kobold",  "kobold.obj"  },
-        // { "orc",     "orc.obj"     },
-    };
-
-    spdlog::debug("getModelFileForType: name='{}' type={} btype={}",
-                  mon.name(), mon.type(), mon.btype());
-
-    auto it = s_nameModelMap.find(mon.name());
-    if (it != s_nameModelMap.end())
-        return it->second;
-    return s_defaultModel;
-}
-
 MonsterBufferedModel* Renderer::getOrCreateMonsterModel(const std::string& modelFile)
 {
     auto it = m_monsterModelCache.find(modelFile);
@@ -912,6 +939,25 @@ MonsterBufferedModel* Renderer::getOrCreateMonsterModel(const std::string& model
     MonsterBufferedModel* ptr = model.get();
     m_monsterModelCache[modelFile] = std::move(model);
     spdlog::info("Created monster model from '{}'", modelFile);
+    return ptr;
+}
+
+MonsterBufferedModel* Renderer::getOrCreateObjectModel(const std::string& modelFile)
+{
+    auto it = m_objectModelCache.find(modelFile);
+    if (it != m_objectModelCache.end())
+        return it->second.get();
+
+    auto modelPtr = std::make_unique<Model>(modelFile);
+    modelPtr->scaleToUnitCube();
+    auto model = std::make_unique<MonsterBufferedModel>(
+        m_GPUDevice, m_window, std::move(modelPtr),
+        ShaderParameters { std::string_view("position_monster.vert"), 0, 2, 0, 0 },
+        ShaderParameters { std::string_view("solid.frag"), 0, 1, 0, 0 });
+
+    MonsterBufferedModel* ptr = model.get();
+    m_objectModelCache[modelFile] = std::move(model);
+    spdlog::info("Created object model from '{}'", modelFile);
     return ptr;
 }
 
