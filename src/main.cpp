@@ -62,6 +62,24 @@ std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, Rendere
     case SDL_SCANCODE_RETURN:
         return std::make_unique<InputTurn>(SDL_SCANCODE_RETURN);
         break;
+    // Descend stairs: Shift+. (>) or keypad >
+    case SDL_SCANCODE_PERIOD:
+        if ((key.mod & SDL_KMOD_SHIFT) && key.type == SDL_EVENT_KEY_DOWN)
+            return std::make_unique<TextTurn>(">");
+        break;
+    // Ascend stairs: Shift+, (<) or keypad <
+    case SDL_SCANCODE_COMMA:
+        if ((key.mod & SDL_KMOD_SHIFT) && key.type == SDL_EVENT_KEY_DOWN)
+            return std::make_unique<TextTurn>("<");
+        break;
+    case SDL_SCANCODE_KP_GREATER:
+        if (key.type == SDL_EVENT_KEY_DOWN)
+            return std::make_unique<TextTurn>(">");
+        break;
+    case SDL_SCANCODE_KP_LESS:
+        if (key.type == SDL_EVENT_KEY_DOWN)
+            return std::make_unique<TextTurn>("<");
+        break;
     default:
         break;
     }
@@ -186,23 +204,9 @@ int main(int argc, char* argv[])
         setWindowLayoutCallback(getWindowLayoutCallback);
 
         bool isDone = false;
-        bool sentSpectatorJoin = false;
         while (!isDone && !WindowManager::instance().isQuitConfirmed()) {
             std::vector<json> responses = networkManager.getNewMessages();
             if (!responses.empty()) {
-                // Workaround: the server's add_watcher for the primary player happens before
-                // the connection to the game process is open, so "spectator_joined" (which
-                // triggers _send_everything() -> _send_map(true)) is never sent. Sending it
-                // after game_started guarantees the game process connection is established.
-                if (!sentSpectatorJoin) {
-                    for (const auto& r : responses) {
-                        if (r.value("msg", "") == "game_started") {
-                            networkManager.sendMessage({ { "msg", "spectator_joined" } });
-                            sentSpectatorJoin = true;
-                            break;
-                        }
-                    }
-                }
                 processMessages(responseHandlers, responses);
             }
 

@@ -785,9 +785,15 @@ MapDisplacedBufferedModel::MapDisplacedBufferedModel(SDL_GPUDevice* gpu, SDL_Win
 
 void MapDisplacedBufferedModel::pushMapData(const GameMap& map, Pos2<int> playerPos, SDL_GPUCommandBuffer* cmdBuf)
 {
-    // Only push cells that the server says are currently visible (t.bg flags).
+    // Only push cells that the server says are currently visible (t.bg flags),
+    // OR cells that have been explored (fog of war / memory).
+    // Explored-but-not-visible cells are rendered dimmed to distinguish them
+    // from currently-lit cells.  Unexplored cells are never rendered.
     auto shouldRender = [](const Tile& tile) {
-        return tile.isVisible();
+        if (tile.isVisible()) return true;
+        // Fog-of-war cells: seen but not currently visible.
+        // Only render if they aren't Unexplored.
+        return tile.seen() && tile.type() != MapType::Unexplored;
     };
 
     // displacement, color info (per-instance vertex buffer):
@@ -803,7 +809,12 @@ void MapDisplacedBufferedModel::pushMapData(const GameMap& map, Pos2<int> player
         mappedDisplacementColor[idx].shiftY = renderCoords2D.y;
         mappedDisplacementColor[idx].tileType = static_cast<float>(std::to_underlying(tile.type()));
         mappedDisplacementColor[idx].padding = 0.0f;
-        mappedDisplacementColor[idx].color = mapTypeToColor(tile.type());
+        glm::vec4 color = mapTypeToColor(tile.type());
+        if (!tile.isVisible()) {
+            // Dim fog-of-war cells to 40% brightness
+            color.a *= 0.4f;
+        }
+        mappedDisplacementColor[idx].color = color;
         if (++idx >= s_maxRenderCopies)
             break;
     }

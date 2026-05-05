@@ -10,6 +10,9 @@ enum map_type {
     MTYPE_WATER,
     MTYPE_LAVA,
     MTYPE_OTHER,
+    MTYPE_STAIR_UP,
+    MTYPE_STAIR_DOWN,
+    MTYPE_STAIR_BRANCH,
     MTYPE_WALL_MEMORY,
     MTYPE_FLOOR_MEMORY,
     MTYPE_UNEXPLORED,
@@ -54,6 +57,9 @@ main_out main(main_in input)
         shiftY = 0.0f;
     } else if (int(input.shiftData.z) == map_type::MTYPE_FLOOR
             || int(input.shiftData.z) == map_type::MTYPE_OPEN_DOOR
+            || int(input.shiftData.z) == map_type::MTYPE_STAIR_UP
+            || int(input.shiftData.z) == map_type::MTYPE_STAIR_DOWN
+            || int(input.shiftData.z) == map_type::MTYPE_STAIR_BRANCH
             || int(input.shiftData.z) == map_type::MTYPE_FLOOR_MEMORY
             || int(input.shiftData.z) == map_type::MTYPE_UNEXPLORED) {
         shiftY = -1.0f;

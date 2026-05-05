@@ -62,6 +62,18 @@ private:
     static const std::unordered_map<SDL_Scancode, const char*> scancodeToText;
 };
 
+// Sends arbitrary text via the webtiles "input" protocol.
+// Used for keys like < and > (level change), matching the JS client's
+// handle_keypress: send_message("input", { text: s })
+class TextTurn : public Turn {
+public:
+    explicit TextTurn(std::string text);
+    json asMessage() const override;
+
+private:
+    std::string m_text;
+};
+
 // Sends a force-attack (swing weapon) in a direction.
 // Uses the webtiles "key" protocol with CONTROL(keycode) to trigger
 // CMD_ATTACK_* on the server — the character swings without moving.

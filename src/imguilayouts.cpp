@@ -752,6 +752,9 @@ void displayMap(const GameMap& map, const Player& player)
                 case MapType::Item:        glyph = vis ? '!' : 'i'; color = glm::vec4(0.8f,0.8f,0.3f,1); break;
                 case MapType::Water:       glyph = vis ? '~' : 'w'; color = glm::vec4(0.0f,0.3f,0.8f,1); break;
                 case MapType::Lava:        glyph = vis ? 'L' : 'l'; color = glm::vec4(0.8f,0.3f,0.0f,1); break;
+                case MapType::StairUp:     glyph = '<'; color = glm::vec4(0.9f,0.9f,0.95f,1); break;
+                case MapType::StairDown:   glyph = '>'; color = glm::vec4(1.0f,0.4f,0.6f,1); break;   // pink
+                case MapType::StairBranch: glyph = 'B'; color = glm::vec4(0.8f,0.2f,0.9f,1); break;
                 case MapType::Other:       glyph = vis ? 'O' : 'o'; color = glm::vec4(0.0f,0.5f,0.5f,1); break;
                 case MapType::WallMemory:  glyph = '='; color = glm::vec4(0.3f,0.3f,0.0f,1); break;
                 case MapType::FloorMemory: glyph = ':'; color = glm::vec4(0.0f,0.25f,0.0f,1); break;

@@ -65,6 +65,9 @@ glm::vec4 mapTypeToColor(MapType type)
     case Unexplored:  return { 0.5f, 0.5f, 0.5f, 1.0f };
     case Water:       return { 0.0f, 0.3f, 0.8f, 1.0f };
     case Lava:        return { 0.8f, 0.3f, 0.0f, 1.0f };
+    case StairUp:     return { 1.0f, 0.4f, 0.6f, 1.0f  }; // pink
+    case StairDown:   return { 1.0f, 0.4f, 0.6f, 1.0f };
+    case StairBranch: return { 1.0f, 0.4f, 0.6f, 1.0f };
     case Other:       return { 0.0f, 0.5f, 0.5f, 1.0f };
     }
     return { 0.4f, 0.1f, 0.6f, 0.7f }; // fallback
@@ -164,9 +167,9 @@ MapType mapTypeFromMF(int mf)
     case  9: return Floor;         // MF_MONS_NEUTRAL
     case 10: return Floor;         // MF_MONS_HOSTILE
     case 11: return Floor;         // MF_MONS_NO_EXP
-    case 12: return Floor;         // MF_STAIR_UP
-    case 13: return Floor;         // MF_STAIR_DOWN
-    case 14: return Floor;         // MF_STAIR_BRANCH
+    case 12: return StairUp;       // MF_STAIR_UP
+    case 13: return StairDown;     // MF_STAIR_DOWN
+    case 14: return StairBranch;   // MF_STAIR_BRANCH
     case 15: return Other;         // MF_FEATURE
     case 16: return Water;         // MF_WATER
     case 17: return Lava;          // MF_LAVA
@@ -257,6 +260,9 @@ std::string GameMap::dumpString() const
         case MapType::Unexplored:  c = 'U'; break;
         case MapType::Water:       c = vis ? '~' : 'w'; break;
         case MapType::Lava:        c = vis ? 'L' : 'l'; break;
+        case MapType::StairUp:     c = '<'; break;
+        case MapType::StairDown:   c = '>'; break;
+        case MapType::StairBranch: c = 'B'; break;
         case MapType::Other:       c = vis ? 'O' : 'o'; break;
         }
         if (m_monsters.contains(pos)) c = 'M';
@@ -383,14 +389,10 @@ void GameMap::cleanMonsterTable()
 
 void GameMap::updateMap(const json& message)
 {
-    // Prevent a second "clear" map (e.g. from spectator_joined's
-    // _send_everything() after we've already received the real map)
-    // from wiping out existing map data.
+    // Always honour clear: true — matches JS client's handle_map_message()
+    // which calls clear_map() unconditionally.  This handles both the initial
+    // game load and level changes (descend/ascend stairs).
     if (message.contains("clear") && message["clear"]) {
-        if (!m_map.empty()) {
-            spdlog::debug("Skipping clear map — already have {} tiles", m_map.size());
-            return;
-        }
         m_map.clear();
         m_monsters.clear();
         m_monsterTable.clear();
@@ -418,8 +420,14 @@ void GameMap::updateMap(const json& message)
             } else {
                 // Preserve existing tile data (visibility), update type only
                 TileData saved = it->second.tileData();
+                bool wasSeen = it->second.seen();
                 it->second = Tile(newType);
                 it->second.tileData() = saved;
+                it->second.setSeen(wasSeen || newType != MapType::Unexplored);
+            }
+            // Mark as seen if the cell is known (not UNSEEN, not EXPLORE_HORIZON)
+            if (newType != MapType::Unexplored) {
+                m_map[pos].setSeen(true);
             }
         } else if (!m_map.contains(pos)) {
             // Cell is new to us but has no mf — create with Unexplored so the

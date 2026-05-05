@@ -219,6 +219,7 @@ target_compile_features(dcss3d_tests PUBLIC cxx_std_23)
 target_sources(dcss3d_tests PRIVATE
     tests/main.cpp
     tests/test_game_map.cpp
+    tests/test_turn.cpp
     tests/test_player_state.cpp
     tests/test_audio_manager.cpp
     tests/test_window_manager.cpp

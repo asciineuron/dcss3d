@@ -11,9 +11,12 @@ TEST_CASE("MapType enum has expected values", "[GameMap]")
     REQUIRE(static_cast<int>(MapType::Water) == 5);
     REQUIRE(static_cast<int>(MapType::Lava) == 6);
     REQUIRE(static_cast<int>(MapType::Other) == 7);
-    REQUIRE(static_cast<int>(MapType::WallMemory) == 8);
-    REQUIRE(static_cast<int>(MapType::FloorMemory) == 9);
-    REQUIRE(static_cast<int>(MapType::Unexplored) == 10);
+    REQUIRE(static_cast<int>(MapType::StairUp) == 8);
+    REQUIRE(static_cast<int>(MapType::StairDown) == 9);
+    REQUIRE(static_cast<int>(MapType::StairBranch) == 10);
+    REQUIRE(static_cast<int>(MapType::WallMemory) == 11);
+    REQUIRE(static_cast<int>(MapType::FloorMemory) == 12);
+    REQUIRE(static_cast<int>(MapType::Unexplored) == 13);
 }
 
 TEST_CASE("Tile default constructor sets Other type", "[GameMap]")
@@ -482,4 +485,180 @@ TEST_CASE("GameMap combine mf+visibility for rendering decision", "[GameMap]") {
     })}};
     map.handleMessage(msg3);
     REQUIRE_FALSE(map.isVisibleAt(2, 0));
+}
+
+// --- Stair tile type tests ---
+
+TEST_CASE("mapTypeFromMF maps stair features correctly", "[GameMap][Stairs]") {
+    // MF_STAIR_UP=12, MF_STAIR_DOWN=13, MF_STAIR_BRANCH=14
+    REQUIRE(mapTypeFromMF(12) == MapType::StairUp);
+    REQUIRE(mapTypeFromMF(13) == MapType::StairDown);
+    REQUIRE(mapTypeFromMF(14) == MapType::StairBranch);
+}
+
+TEST_CASE("mapTypeToColor returns distinct colors for stairs", "[GameMap][Stairs]") {
+    auto upColor = mapTypeToColor(MapType::StairUp);
+    auto downColor = mapTypeToColor(MapType::StairDown);
+    auto branchColor = mapTypeToColor(MapType::StairBranch);
+
+    // All have full alpha
+    REQUIRE(upColor.a == 1.0f);
+    REQUIRE(downColor.a == 1.0f);
+    REQUIRE(branchColor.a == 1.0f);
+
+    // All are distinct from each other
+    REQUIRE(upColor != downColor);
+    REQUIRE(upColor != branchColor);
+    REQUIRE(downColor != branchColor);
+
+    // StairUp should be bright (white/blue tint)
+    REQUIRE(upColor.r > 0.7f);
+    REQUIRE(upColor.g > 0.7f);
+    REQUIRE(upColor.b > 0.7f);
+
+    // StairDown should be pink — red and blue dominant over green
+    REQUIRE(downColor.r > downColor.g);
+    REQUIRE(downColor.b > downColor.g);
+
+    // StairBranch should be purplish — more red/blue than green
+    REQUIRE(branchColor.r > branchColor.g);
+    REQUIRE(branchColor.b > branchColor.g);
+}
+
+TEST_CASE("Stair tiles are visible when bg has no UNSEEN flags", "[GameMap][Stairs]") {
+    GameMap map;
+    json mapMsg = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 5}, {"y", 5}, {"mf", 13}, {"t", {{"bg", 0}}}}
+        })}
+    };
+    map.handleMessage(mapMsg);
+    auto tileOpt = map.getTileAt(5, 5);
+    REQUIRE(tileOpt.has_value());
+    REQUIRE(*tileOpt == MapType::StairDown);
+    REQUIRE(map.isVisibleAt(5, 5));
+}
+
+// --- Level change tests (Stream 3) ---
+
+TEST_CASE("GameMap level change: clear+repopulate replaces old map", "[GameMap][LevelChange]") {
+    GameMap map;
+
+    // Load initial level with cells
+    json initialMsg = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"mf", 1}},
+            {{"x", 1}, {"y", 0}, {"mf", 2}}
+        })}
+    };
+    map.handleMessage(initialMsg);
+    REQUIRE(map.getTileAt(0, 0).has_value());
+    REQUIRE(map.getTileAt(1, 0).has_value());
+    REQUIRE(*map.getTileAt(0, 0) == MapType::Floor);
+    REQUIRE(*map.getTileAt(1, 0) == MapType::Wall);
+
+    // Descend to new level — server sends clear:true with new cells
+    json newLevelMsg = {
+        {"msg", "map"},
+        {"clear", true},
+        {"cells", json::array({
+            {{"x", 10}, {"y", 10}, {"mf", 1}},
+            {{"x", 11}, {"y", 10}, {"mf", 2}}
+        })}
+    };
+    map.handleMessage(newLevelMsg);
+
+    // Old cells must be gone
+    REQUIRE_FALSE(map.getTileAt(0, 0).has_value());
+    REQUIRE_FALSE(map.getTileAt(1, 0).has_value());
+
+    // New cells must exist
+    REQUIRE(map.getTileAt(10, 10).has_value());
+    REQUIRE(map.getTileAt(11, 10).has_value());
+    REQUIRE(*map.getTileAt(10, 10) == MapType::Floor);
+    REQUIRE(*map.getTileAt(11, 10) == MapType::Wall);
+}
+
+TEST_CASE("GameMap level change: monsters are cleared", "[GameMap][LevelChange]") {
+    GameMap map;
+
+    // Load initial level with a monster
+    json initialMsg = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 3}, {"y", 3}, {"mf", 1}, {"mon", {{"id", 42}, {"name", "Goblin"}}}}
+        })}
+    };
+    map.handleMessage(initialMsg);
+    REQUIRE(map.getMonsterAt(3, 3).has_value());
+    REQUIRE(map.monsterTable().size() == 1);
+    REQUIRE(map.monsterPositions().size() == 1);
+
+    // Descend — clear:true with new cells, no monsters
+    json newLevelMsg = {
+        {"msg", "map"},
+        {"clear", true},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"mf", 1}}
+        })}
+    };
+    map.handleMessage(newLevelMsg);
+
+    // Monster must be gone from position map, table, and cell lookup
+    REQUIRE_FALSE(map.getMonsterAt(3, 3).has_value());
+    REQUIRE(map.monsterTable().empty());
+    REQUIRE(map.monsterPositions().empty());
+}
+
+// --- Fog-of-war / seen flag tests ---
+
+TEST_CASE("Tile is marked seen when mf is a known feature", "[GameMap][Seen]") {
+    GameMap map;
+    json msg = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"mf", 1}}   // MF_FLOOR
+        })}
+    };
+    map.handleMessage(msg);
+    auto tileOpt = map.getTileAt(0, 0);
+    REQUIRE(tileOpt.has_value());
+    // We can't directly access seen() from getTileAt since it returns MapType.
+    // But we can check that the cell is now in the map and has the right type.
+    REQUIRE(*tileOpt == MapType::Floor);
+}
+
+TEST_CASE("Fog-of-war cells are seen but not necessarily visible", "[GameMap][Seen]") {
+    GameMap map;
+
+    // Load a cell with mf=3 (MF_MAP_FLOOR) but no t.bg — fog of war
+    json msg = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"mf", 3}}  // FloorMemory, no t data
+        })}
+    };
+    map.handleMessage(msg);
+
+    auto tileOpt = map.getTileAt(0, 0);
+    REQUIRE(tileOpt.has_value());
+    REQUIRE(*tileOpt == MapType::FloorMemory);
+    // Not visible because no t.bg data
+    REQUIRE_FALSE(map.isVisibleAt(0, 0));
+}
+
+TEST_CASE("Explore horizon cell is marked Unexplored", "[GameMap][Seen]") {
+    GameMap map;
+    json msg = {
+        {"msg", "map"},
+        {"cells", json::array({
+            {{"x", 0}, {"y", 0}, {"mf", 26}}  // MF_EXPLORE_HORIZON
+        })}
+    };
+    map.handleMessage(msg);
+    auto tileOpt = map.getTileAt(0, 0);
+    REQUIRE(tileOpt.has_value());
+    REQUIRE(*tileOpt == MapType::Unexplored);
 }

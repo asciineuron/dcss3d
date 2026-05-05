@@ -105,6 +105,16 @@ const std::unordered_map<SDL_Scancode, const char*> InputTurn::scancodeToText = 
     { SDL_SCANCODE_KP_LESS, "<" }
 };
 
+TextTurn::TextTurn(std::string text)
+    : m_text { std::move(text) }
+{
+}
+
+json TextTurn::asMessage() const
+{
+    return { { "msg", "input" }, { "text", m_text } };
+}
+
 AttackTurn::AttackTurn(Direction direction)
     : m_direction { direction }
 {

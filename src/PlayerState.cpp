@@ -23,6 +23,10 @@ void Player::handlePlayerMessage(const json& message)
 {
     // Mirror upstream JS handle_player_message() in player.js:543-593
 
+    // Save old depth to detect level changes (for camera reset)
+    int oldDepth = m_data.depth;
+    std::string oldPlace = m_data.place;
+
     // 1. Merge inventory items (like JS: $.extend(player.inv[i], data.inv[i]))
     if (auto inv = message.find("inv"); inv != message.end() && inv->is_object()) {
         for (const auto& [key, itemJson] : inv->items()) {
@@ -143,6 +147,23 @@ void Player::handlePlayerMessage(const json& message)
     spdlog::debug("  Equipment: w_idx={} off_idx={} off_wpn={} q_item={} q_desc='{}' unarmed='{}'",
                   m_data.weapon_index, m_data.offhand_index, m_data.offhand_weapon,
                   m_data.quiver_item, m_data.quiver_desc, m_data.unarmed_attack);
+
+    // When the player changes levels (depth or place change), reset the
+    // camera to the player's new position.  The server resets m_origin on
+    // level change, so the player's position becomes (0,0) in map coords.
+    bool depthChanged = (oldDepth != 0 && m_data.depth != oldDepth);
+    bool placeChanged = (!oldPlace.empty() && m_data.place != oldPlace);
+    if (depthChanged || placeChanged) {
+        glm::vec2 renderPos = mapCoordToRender({m_data.pos_x, m_data.pos_y});
+        m_camera.pos[0] = renderPos.x;
+        m_camera.pos[2] = renderPos.y;
+        // Reset movement velocity so the player doesn't immediately
+        // slide in the previous direction on the new level.
+        m_velX = 0.0f;
+        m_velY = 0.0f;
+        spdlog::debug("Level change detected: depth {}->{} place '{}'->'{}', camera reset to ({:.1f}, {:.1f})",
+                      oldDepth, m_data.depth, oldPlace, m_data.place, renderPos.x, renderPos.y);
+    }
 }
 
 Direction Player::getFacingDirection() const

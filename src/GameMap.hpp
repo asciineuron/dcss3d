@@ -19,6 +19,9 @@ enum class MapType {
     Water,        // MF_WATER (16), MF_DEEP_WATER (22)
     Lava,         // MF_LAVA (17)
     Other,        // MF_FEATURE (15), etc.
+    StairUp,      // MF_STAIR_UP (12) — ascending staircase
+    StairDown,    // MF_STAIR_DOWN (13) — descending staircase
+    StairBranch,  // MF_STAIR_BRANCH (14) — branch staircase
 
     // Non-visible types — not rendered in 3D, shown in overlay only
     WallMemory,   // MF_MAP_WALL (4)
@@ -63,9 +66,15 @@ public:
     const TileData& tileData() const { return m_tileData; }
     bool isVisible() const { return m_tileData.isVisible(); }
 
+    // Whether this cell has been "seen" (has mf data that isn't UNSEEN).
+    // Fog-of-war cells are seen but not necessarily visible.
+    bool seen() const { return m_seen; }
+    void setSeen(bool s) { m_seen = s; }
+
 private:
     MapType m_type;
     TileData m_tileData;
+    bool m_seen = false;
 };
 
 // Represents a monster/creature on the map, storing parsed JSON data from the server.
@@ -189,6 +198,7 @@ private:
 };
 
 glm::vec4 mapTypeToColor(MapType type);
+MapType mapTypeFromMF(int mf);
 
 // takes map index and converts to its *center* in render coords
 inline glm::vec2 mapCoordToRender(const Pos2<int>& coord)
