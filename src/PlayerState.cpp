@@ -229,8 +229,23 @@ std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& 
     // Calculate world-space movement from camera-relative velocity
     // m_velX/m_velY are camera-relative (forward/backward, left/right)
     // theta is camera yaw angle
-    float dx = m_velY * std::cos(m_camera.theta) + m_velX * std::cos(pi / 2. - m_camera.theta);
-    float dy = -m_velY * std::cos(pi / 2. - m_camera.theta) + m_velX * std::cos(m_camera.theta);
+
+    // Normalize diagonal movement to prevent speed-up.
+    // When two perpendicular keys are held (e.g. W+D), velX and velY
+    // are both set to the full velocity, giving a combined magnitude
+    // of sqrt(2) * velocity.  Clamp the vector length to the intended
+    // cardinal speed (max component) while preserving direction.
+    float vx = m_velX;
+    float vy = m_velY;
+    if (vx != 0.0f && vy != 0.0f) {
+        float mag = std::sqrt(vx * vx + vy * vy);
+        float speed = std::max(std::abs(vx), std::abs(vy));
+        vx = vx / mag * speed;
+        vy = vy / mag * speed;
+    }
+
+    float dx = vy * std::cos(m_camera.theta) + vx * std::cos(pi / 2. - m_camera.theta);
+    float dy = -vy * std::cos(pi / 2. - m_camera.theta) + vx * std::cos(m_camera.theta);
 
     float x_disp = gameTime.dt() * dx;
     float y_disp = gameTime.dt() * dy;

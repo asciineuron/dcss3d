@@ -93,8 +93,6 @@ static char scancodeToChar(SDL_Scancode sc, SDL_Keymod mod)
 
 std::unique_ptr<Turn> process_key(SDL_KeyboardEvent key, Player& player, Renderer& renderer, bool& isDone)
 {
-    // TODO prevent diagonal speedup
-
     float velocity = 1.0f;
     if (key.type == SDL_EVENT_KEY_UP)
         velocity = 0.0f; // reset movement when key released
