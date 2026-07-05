@@ -26,12 +26,12 @@ struct Camera {
 struct Face {
     std::array<Uint16, 3> vertexIndices;
     std::array<Uint16, 3> textureIndices;
-    std::array<Uint16, 3> normalIndices {};  // 0 = absent, 1+ = 1-based index into rawNormals
+    std::array<Uint16, 3> normalIndices { }; // 0 = absent, 1+ = 1-based index into rawNormals
 };
 
 struct LightUniforms {
-    glm::vec4 lightPos;    // xyz = camera world position
-    glm::vec4 cameraPos;   // xyz = camera world position
+    glm::vec4 lightPos; // xyz = camera world position
+    glm::vec4 cameraPos; // xyz = camera world position
 };
 
 class Model {
@@ -53,7 +53,7 @@ private:
     std::vector<glm::vec3> m_vertices;
     std::vector<glm::vec2> m_uvs;
     std::vector<glm::vec3> m_rawNormals; // OBJ vn lines — empty if model has no vertex normals
-    std::vector<glm::vec3> m_normals;   // expanded per-vertex normals (indexed from raw or computed)
+    std::vector<glm::vec3> m_normals; // expanded per-vertex normals (indexed from raw or computed)
     std::vector<Face> m_faces;
     std::string m_name;
     const std::string m_resourcePath;
@@ -67,7 +67,7 @@ public:
     BufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { "position.vert", 0, 1, 0, 0 },
         ShaderParameters fragment = { "color.frag", 0, 0, 0, 0 },
-        std::string_view textureFilename = {});
+        std::string_view textureFilename = { });
     ~BufferedModel();
 
     virtual void release();
@@ -77,22 +77,22 @@ public:
 protected:
     SDL_GPUDevice* m_GPUDevice;
     std::unique_ptr<Model> m_model; // TODO no need for ptr, just Model;
-    SDL_GPUBuffer* m_drawBuffer {}; // receives from m_drawTransferBuf, # indices + instances
-    SDL_GPUTransferBuffer* m_drawTransferBuf {}; // SDL_GPUIndexedIndirectDrawCommand
+    SDL_GPUBuffer* m_drawBuffer { }; // receives from m_drawTransferBuf, # indices + instances
+    SDL_GPUTransferBuffer* m_drawTransferBuf { }; // SDL_GPUIndexedIndirectDrawCommand
     Uint32 m_drawBufSize;
 
-    SDL_GPUGraphicsPipeline* m_pipeline {};
-    SDL_GPUBuffer* m_vertexBuffer {}; // vertex and index only need an initial upload
-    SDL_GPUBuffer* m_indexBuffer {}; // ^ so don't need to store their temp transfer buffer here
+    SDL_GPUGraphicsPipeline* m_pipeline { };
+    SDL_GPUBuffer* m_vertexBuffer { }; // vertex and index only need an initial upload
+    SDL_GPUBuffer* m_indexBuffer { }; // ^ so don't need to store their temp transfer buffer here
     Uint32 m_vertexBufSize;
     Uint32 m_indexBufSize;
 
     // Texture members
-    SDL_GPUTexture* m_texture {};
-    SDL_GPUSampler* m_sampler {};
+    SDL_GPUTexture* m_texture { };
+    SDL_GPUSampler* m_sampler { };
     std::string m_textureFilename;
 
-    bool m_hasReleased {};
+    bool m_hasReleased { };
 
     SDL_GPUGraphicsPipeline* createGraphicsPipelineWithShaders(SDL_Window* window, ShaderParameters vertex, ShaderParameters fragment);
     void uploadModel();
@@ -105,7 +105,7 @@ public:
     MapDisplacedBufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { std::string_view("position_color_shifted.vert"), 0, 1, 1, 0 },
         ShaderParameters fragment = { std::string_view("lit.frag"), 0, 1, 0, 0 },
-        std::string_view textureFilename = {});
+        std::string_view textureFilename = { });
     ~MapDisplacedBufferedModel();
 
     void release() override;
@@ -114,16 +114,16 @@ public:
     void pushMapData(const GameMap&, Pos2<int> playerPos, SDL_GPUCommandBuffer*);
 
 private:
-    SDL_GPUBuffer* m_mapDataBuffer {};
-    SDL_GPUTransferBuffer* m_dataTransferBuf {};
+    SDL_GPUBuffer* m_mapDataBuffer { };
+    SDL_GPUTransferBuffer* m_dataTransferBuf { };
     bool m_hasReleased;
 
     struct DisplacementColorInfo {
-        float shiftX;     // offset 0
-        float shiftY;     // offset 4
-        float tileType;   // offset 8
-        float padding;    // offset 12 (required padding so color aligns to 16 bytes)
-        glm::vec4 color;  // offset 16
+        float shiftX; // offset 0
+        float shiftY; // offset 4
+        float tileType; // offset 8
+        float padding; // offset 12 (required padding so color aligns to 16 bytes)
+        glm::vec4 color; // offset 16
         // sizeof = 32 bytes (matches slot 1 pitch perfectly)
     };
 
@@ -138,7 +138,7 @@ public:
     MonsterBufferedModel(SDL_GPUDevice*, SDL_Window*, std::unique_ptr<Model>,
         ShaderParameters vertex = { std::string_view("position_monster.vert"), 0, 2, 0, 0 },
         ShaderParameters fragment = { std::string_view("solid.frag"), 0, 1, 0, 0 },
-        std::string_view textureFilename = {});
+        std::string_view textureFilename = { });
     ~MonsterBufferedModel();
 
     void release() override;
@@ -148,18 +148,18 @@ public:
     // Push instance data for a filtered subset of monsters (pre-grouped by model type).
     // Accepts a vector of (position, monster-pointer) pairs.
     void pushMonsterData(const std::vector<std::pair<Pos2<int>, const Monster*>>&,
-                         SDL_GPUCommandBuffer*);
+        SDL_GPUCommandBuffer*);
 
 private:
-    SDL_GPUBuffer* m_monsterInstanceBuffer {};
-    SDL_GPUTransferBuffer* m_monsterTransferBuf {};
+    SDL_GPUBuffer* m_monsterInstanceBuffer { };
+    SDL_GPUTransferBuffer* m_monsterTransferBuf { };
     bool m_hasReleased;
 
     // Reusing the same 32-byte struct as MapDisplacedBufferedModel
     struct DisplacementColorInfo {
         float shiftX;
         float shiftY;
-        float tileType;  // sentinel 999 = "don't sink, it's a monster"
+        float tileType; // sentinel 999 = "don't sink, it's a monster"
         float padding;
         glm::vec4 color;
     };
@@ -167,8 +167,22 @@ private:
     static constexpr unsigned s_maxMonsterInstances = 256;
 };
 
-
 std::ostream& operator<<(std::ostream& os, const Model& model);
+
+// for SpriteModel, low level wrap SDL texture image and access subparts of spritesheet
+class Texture {
+};
+
+// TODO instead of sprite have 3d animated models? Totally different routes, assimp with bones vs spritesheet
+class SpriteModel {
+public:
+    SpriteModel(std::string filename);
+    ~SpriteModel();
+    virtual void release();
+    virtual void draw(SDL_GPURenderPass*); // TODO: does this need gpu if it's 2D sprite?
+    void playAnimation(); // TODO how to implement this?
+private:
+};
 
 class Renderer {
 public:
@@ -185,7 +199,6 @@ public:
     SDL_Window* window() { return m_window; }
 
     SDL_GPUDevice* gpu_device() { return m_GPUDevice; }
-
 
     // Set the world-space position of the target cell for highlighting.
     // w component: 1.0 = enabled, 0.0 = disabled (no cell to highlight).
@@ -209,17 +222,20 @@ private:
     std::unordered_map<std::string, std::unique_ptr<MonsterBufferedModel>> m_objectModelCache;
     MonsterBufferedModel* getOrCreateObjectModel(const std::string& modelFile);
 
-    SDL_WindowID m_windowID {};
-    int m_windowWidth {};
-    int m_windowHeight {};
+    std::unordered_map<std::string, std::unique_ptr<SpriteModel>> m_spriteModelCache;
+    SpriteModel* getOrCreateSpriteModel(const std::string& modelFile);
+
+    SDL_WindowID m_windowID { };
+    int m_windowWidth { };
+    int m_windowHeight { };
 
     std::atomic_uint64_t m_renderCount;
 
     // Depth buffer for proper filled polygon rendering
-    SDL_GPUTexture* m_depthTexture {};
+    SDL_GPUTexture* m_depthTexture { };
 
     // Target highlight position in render coords: x=worldX, y=worldY(0), z=worldZ, w=enabled
-    glm::vec4 m_targetHighlightPos {0.0f, 0.0f, 0.0f, 0.0f};
+    glm::vec4 m_targetHighlightPos { 0.0f, 0.0f, 0.0f, 0.0f };
 
     void pushMapToGPU(const GameMap&, Pos2<int> playerPos, SDL_GPUCommandBuffer*);
     void pushMonsterToGPU(const GameMap&, SDL_GPUCommandBuffer*);

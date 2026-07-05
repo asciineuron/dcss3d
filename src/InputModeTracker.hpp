@@ -19,12 +19,12 @@ class InputModeTracker : public MessageHandler {
 public:
     // Well-known mouse_mode values from crawl's mouse_control
     enum Mode : int {
-        NORMAL  = 0,
+        NORMAL = 0,
         COMMAND = 1,
-        TARGET  = 2,
-        MORE    = 5,
-        PROMPT  = 7,
-        YESNO   = 8,
+        TARGET = 2,
+        MORE = 5,
+        PROMPT = 7,
+        YESNO = 8,
     };
 
     InputModeTracker() = default;

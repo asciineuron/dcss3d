@@ -1,11 +1,11 @@
 #pragma once
 #include <atomic>
+#include <deque>
 #include <functional>
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <poll.h>
 #include <span>
-#include <deque>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -36,7 +36,7 @@ public:
     // use via messageMutex:
     const auto& responseHistory() const { return m_responseHistory; };
     // mutex not needed since writes aren't in poll loop, but on main thread:
-    const auto& sendHistory() const {return m_sendHistory; };
+    const auto& sendHistory() const { return m_sendHistory; };
     // TODO: some way to view these unified/interleaved by timestamps?
 
     bool isConnected() const { return m_isConnected; }

@@ -57,11 +57,11 @@ private:
     // Metal uses left-handed cubemaps: +Z = away, -Z = toward viewer,
     // opposite of OpenGL convention.
     static inline const std::vector<std::string> s_faceFilenames = {
-        "resources/skybox/right.jpg",   // +X
-        "resources/skybox/left.jpg",    // -X
-        "resources/skybox/top.jpg",     // +Y
-        "resources/skybox/bottom.jpg",  // -Y
-        "resources/skybox/front.jpg",   // +Z
-        "resources/skybox/back.jpg",    // -Z
+        "resources/skybox/right.jpg", // +X
+        "resources/skybox/left.jpg", // -X
+        "resources/skybox/top.jpg", // +Y
+        "resources/skybox/bottom.jpg", // -Y
+        "resources/skybox/front.jpg", // +Z
+        "resources/skybox/back.jpg", // -Z
     };
 };

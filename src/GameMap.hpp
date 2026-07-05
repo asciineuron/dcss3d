@@ -2,31 +2,31 @@
 
 #include "MessageQueue.hpp"
 #include "Turn.hpp"
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
-#include <cstdint>
 #include <unordered_set>
 
 enum class MapType {
     // Currently visible types — rendered in 3D
-    Wall,         // MF_WALL (2)
-    Floor,        // MF_FLOOR (1)
-    Door,         // MF_DOOR (5) — closed
-    OpenDoor,     // open door (f:34) — passable, transparent
-    Item,         // MF_ITEM (6)
-    Water,        // MF_WATER (16), MF_DEEP_WATER (22)
-    Lava,         // MF_LAVA (17)
-    Other,        // MF_FEATURE (15), etc.
-    StairUp,      // MF_STAIR_UP (12) — ascending staircase
-    StairDown,    // MF_STAIR_DOWN (13) — descending staircase
-    StairBranch,  // MF_STAIR_BRANCH (14) — branch staircase
+    Wall, // MF_WALL (2)
+    Floor, // MF_FLOOR (1)
+    Door, // MF_DOOR (5) — closed
+    OpenDoor, // open door (f:34) — passable, transparent
+    Item, // MF_ITEM (6)
+    Water, // MF_WATER (16), MF_DEEP_WATER (22)
+    Lava, // MF_LAVA (17)
+    Other, // MF_FEATURE (15), etc.
+    StairUp, // MF_STAIR_UP (12) — ascending staircase
+    StairDown, // MF_STAIR_DOWN (13) — descending staircase
+    StairBranch, // MF_STAIR_BRANCH (14) — branch staircase
 
     // Non-visible types — not rendered in 3D, shown in overlay only
-    WallMemory,   // MF_MAP_WALL (4)
-    FloorMemory,  // MF_MAP_FLOOR (3)
-    Unexplored,   // MF_UNSEEN (0), MF_EXPLORE_HORIZON (26)
+    WallMemory, // MF_MAP_WALL (4)
+    FloorMemory, // MF_MAP_FLOOR (3)
+    Unexplored, // MF_UNSEEN (0), MF_EXPLORE_HORIZON (26)
 };
 
 // Tile data from the server's "t" field.  Mirrors the JS client's tile data
@@ -34,20 +34,22 @@ enum class MapType {
 struct TileData {
     uint64_t bg = 0;
     bool hasBg = false;
-    int feature = 0;  // dungeon feature enum (server "f" field)
+    int feature = 0; // dungeon feature enum (server "f" field)
 
     // Background flag constants (from enums.js bg_flags)
-    static constexpr uint64_t UNSEEN    = 0x00040000;
+    static constexpr uint64_t UNSEEN = 0x00040000;
     static constexpr uint64_t MM_UNSEEN = 0x00020000;
 
     // Dungeon feature constants (from crawl enum.h)
     static constexpr int DNGN_OPEN_DOOR = 34;
 
-    bool isVisible() const {
+    bool isVisible() const
+    {
         return hasBg && !(bg & UNSEEN) && !(bg & MM_UNSEEN);
     }
 
-    bool isOpenDoor() const {
+    bool isOpenDoor() const
+    {
         return feature == DNGN_OPEN_DOOR;
     }
 };
@@ -107,19 +109,19 @@ public:
     bool hasClientid() const { return m_hasClientid; }
 
 private:
-    uint32_t m_id {};
-    int m_type {};
-    int m_att {};         // mon_attitude_type (0=hostile, 1=neutral, 2=strict_neutral, 3=good_neutral, 4=friendly, 5=marionette)
-    int m_threat {};      // mon_threat_level_type (0=trivial, 1=easy, 2=tough, 3=nasty, 4=undefined)
+    uint32_t m_id { };
+    int m_type { };
+    int m_att { }; // mon_attitude_type (0=hostile, 1=neutral, 2=strict_neutral, 3=good_neutral, 4=friendly, 5=marionette)
+    int m_threat { }; // mon_threat_level_type (0=trivial, 1=easy, 2=tough, 3=nasty, 4=undefined)
     std::string m_name;
     std::string m_plural;
-    int m_btype {};
-    bool m_hasBtype {};
-    int m_typedataAvghp {};
-    bool m_typedataNoExp {};
-    bool m_hasTypedata {};
-    uint32_t m_clientid {};
-    bool m_hasClientid {};
+    int m_btype { };
+    bool m_hasBtype { };
+    int m_typedataAvghp { };
+    bool m_typedataNoExp { };
+    bool m_hasTypedata { };
+    uint32_t m_clientid { };
+    bool m_hasClientid { };
 };
 
 template <typename T>
@@ -141,7 +143,7 @@ template <>
 struct hash<Pos2<int>> {
     std::size_t operator()(const Pos2<int>& p) const
     {
-        return std::hash<int> {}(p.x) ^ std::hash<int> {}(p.y);
+        return std::hash<int> { }(p.x) ^ std::hash<int> { }(p.y);
     }
 };
 };
@@ -149,7 +151,7 @@ struct hash<Pos2<int>> {
 // Tracks an inanimate object (item, corpse, feature) at a map cell.
 // Stored separately from the floor tile so we can render a 3D model on top.
 struct ObjectInfo {
-    int mf = 0;  // map_feature value (MF_ITEM=6, MF_FEATURE=15, etc.)
+    int mf = 0; // map_feature value (MF_ITEM=6, MF_FEATURE=15, etc.)
 };
 
 // int or float?
@@ -187,7 +189,9 @@ public:
     bool didRender() const { return m_didRender; };
     void setDidRender(bool didRender) { m_didRender = didRender; };
 
-    struct Bounds { int x_min, x_max, y_min, y_max; };
+    struct Bounds {
+        int x_min, x_max, y_min, y_max;
+    };
     Bounds getBounds() const;
     std::optional<MapType> getTileAt(int x, int y) const;
     void setTileType(int x, int y, MapType type);
@@ -196,19 +200,19 @@ public:
 
     friend std::ostream& operator<<(std::ostream&, const GameMap&);
     std::string asciiView() const;
-    std::string dumpString() const;  // returns compact grid dump as string
-    void dump() const;  // logs dumpString() at info level
+    std::string dumpString() const; // returns compact grid dump as string
+    void dump() const; // logs dumpString() at info level
 
 private:
     MapData m_map;
-    MonsterPosMap m_monsters;       // position → monster ID
-    MonsterTable m_monsterTable;     // monster ID → Monster data
-    ObjectMap m_objects;             // position → inanimate object info
-    bool m_didRender {};
+    MonsterPosMap m_monsters; // position → monster ID
+    MonsterTable m_monsterTable; // monster ID → Monster data
+    ObjectMap m_objects; // position → inanimate object info
+    bool m_didRender { };
     Bounds m_bounds { 0, 0, 0, 0 };
     void updateMap(const json& message); // call from handleMessage()
     void updateBounds();
-    void cleanMonsterTable();        // remove IDs not referenced by any cell in m_monsters
+    void cleanMonsterTable(); // remove IDs not referenced by any cell in m_monsters
 };
 
 glm::vec4 mapTypeToColor(MapType type);

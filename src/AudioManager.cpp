@@ -94,12 +94,12 @@ const AudioManager::SoundClip* AudioManager::loadSound(const std::string& name)
     if (!SDL_LoadWAV(path.c_str(), &clip.spec, &clip.data, &clip.length)) {
         spdlog::error("AudioManager: SDL_LoadWAV('{}') failed: {}", path, SDL_GetError());
         // Insert an empty clip so we don't retry on every trigger
-        m_soundCache[name] = {};
+        m_soundCache[name] = { };
         return nullptr;
     }
 
     spdlog::info("AudioManager: loaded sound '{}' from '{}' ({} bytes, {}Hz, {} ch)",
-                 name, path, clip.length, clip.spec.freq, clip.spec.channels);
+        name, path, clip.length, clip.spec.freq, clip.spec.channels);
 
     m_soundCache[name] = clip;
     return &m_soundCache[name];

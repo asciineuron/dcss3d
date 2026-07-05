@@ -14,10 +14,10 @@ struct SDL_Window;
 class WindowManager : public MessageHandler {
 public:
     enum class Mode {
-        Login,       // Only network window, no skybox/game (waiting for login_success)
-        Normal,      // No imgui windows, game active (relative mouse)
-        Overlay,     // All windows visible, game input paused (absolute mouse)
-        Equipment,   // Only equipment window, game input paused (absolute mouse)
+        Login, // Only network window, no skybox/game (waiting for login_success)
+        Normal, // No imgui windows, game active (relative mouse)
+        Overlay, // All windows visible, game input paused (absolute mouse)
+        Equipment, // Only equipment window, game input paused (absolute mouse)
         QuitConfirm, // Quit confirmation modal, game input paused (absolute mouse)
     };
 
@@ -27,8 +27,8 @@ public:
     void setMode(Mode mode);
 
     // Convenience toggles
-    void toggleOverlay();     // Normal <-> Overlay
-    void toggleEquipment();   // Normal <-> Equipment
+    void toggleOverlay(); // Normal <-> Overlay
+    void toggleEquipment(); // Normal <-> Equipment
 
     // Enter quit confirmation mode. Saves previous mode and syncs mouse.
     void enterQuitConfirm(SDL_Window* window);

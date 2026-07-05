@@ -6,11 +6,11 @@
 #include "imgui.h"
 #include "imgui_stdlib.h"
 #include <algorithm>
-#include <spdlog/spdlog.h>
 #include <format>
 #include <fstream>
 #include <mutex>
 #include <ranges>
+#include <spdlog/spdlog.h>
 #include <sstream>
 #include <unordered_map>
 
@@ -33,9 +33,9 @@ WindowLayoutCallback g_windowLayoutCallback = nullptr;
 // Pin state: window name -> is pinned.
 // Map and player windows start pinned so they're visible in Normal mode.
 std::unordered_map<std::string, bool> g_pinState = {
-    {"map", true},
-    {"player", true},
-    {"log", true},
+    { "map", true },
+    { "player", true },
+    { "log", true },
 };
 
 // Strip DCSS color tags like <brown>, <lightgreen>, <w> from a string
@@ -74,7 +74,8 @@ void toggleWindowPin(const char* windowName)
 bool anyWindowsPinned()
 {
     for (const auto& [name, pinned] : g_pinState) {
-        if (pinned) return true;
+        if (pinned)
+            return true;
     }
     return false;
 }
@@ -107,7 +108,7 @@ bool PinButton(const char* windowName)
 static void applyWindowLayout(const char* windowName, const WindowLayout& layout)
 {
     spdlog::debug("Applying layout for '{}': pos=({},{}), size=({},{}), valid={}",
-                  windowName, layout.posX, layout.posY, layout.sizeX, layout.sizeY, layout.isValid);
+        windowName, layout.posX, layout.posY, layout.sizeX, layout.sizeY, layout.isValid);
     ImGui::SetNextWindowPos(ImVec2(layout.posX, layout.posY), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(layout.sizeX, layout.sizeY), ImGuiCond_Always);
     if (layout.isCollapsed) {
@@ -126,9 +127,9 @@ static void applyResetLayout(const char* windowName, int index)
 }
 
 void displayAllWindows(const Player& player, const GameMap& map,
-                       NetworkManager& networkManager, Renderer& renderer,
-                       const MessageLog& messageLog,
-                       const char* layoutFilename)
+    NetworkManager& networkManager, Renderer& renderer,
+    const MessageLog& messageLog,
+    const char* layoutFilename)
 {
     WindowManager& wm = WindowManager::instance();
 
@@ -168,7 +169,7 @@ void displayAllWindows(const Player& player, const GameMap& map,
             }
             ImGui::EndPopup();
         }
-        return;  // block other windows
+        return; // block other windows
     }
 
     // Character select takes priority during Login phase
@@ -309,7 +310,8 @@ size_t getPendingLayoutCount()
 
 const char* getPendingLayoutName()
 {
-    if (g_pendingAction != LayoutAction::Load || g_savedLayout.empty()) return nullptr;
+    if (g_pendingAction != LayoutAction::Load || g_savedLayout.empty())
+        return nullptr;
     return g_savedLayout[0].name.c_str();
 }
 
@@ -349,10 +351,11 @@ bool saveWindowLayout(const char* filename)
     bool first = true;
     for (const char* name : windowNames) {
         WindowLayout layout = g_windowLayoutCallback(name);
-        
-        if (!first) json << ",\n";
+
+        if (!first)
+            json << ",\n";
         first = false;
-        
+
         json << "    {\n";
         json << "      \"name\": \"" << layout.name << "\",\n";
         json << "      \"posX\": " << layout.posX << ",\n";
@@ -391,59 +394,66 @@ bool loadWindowLayout(const char* filename)
     g_savedLayout.clear();
 
     std::string content((std::istreambuf_iterator<char>(file)),
-                         std::istreambuf_iterator<char>());
+        std::istreambuf_iterator<char>());
     file.close();
 
     // Simple JSON parsing - look for window entries
     // Format: "name": "xxx", "posX": x.x, "posY": y.y, "sizeX": w.w, "sizeY": h.h, "isCollapsed": true/false
-    
+
     size_t pos = 0;
     while (true) {
         // Find next "name": "
         size_t nameStart = content.find("\"name\": \"", pos);
-        if (nameStart == std::string::npos) break;
-        
+        if (nameStart == std::string::npos)
+            break;
+
         WindowLayout layout;
-        
+
         // Extract name
         size_t nameQuote = nameStart + 9;
         size_t nameEnd = content.find("\"", nameQuote);
         layout.name = content.substr(nameQuote, nameEnd - nameQuote);
-        
+
         // Extract posX
         size_t posXStart = content.find("\"posX\":", nameEnd);
-        if (posXStart == std::string::npos) break;
+        if (posXStart == std::string::npos)
+            break;
         posXStart += 7;
-        while (isspace(content[posXStart])) posXStart++;
+        while (isspace(content[posXStart]))
+            posXStart++;
         layout.posX = std::stof(content.substr(posXStart));
-        
+
         // Extract posY
         size_t posYStart = content.find("\"posY\":", posXStart);
         posYStart += 7;
-        while (isspace(content[posYStart])) posYStart++;
+        while (isspace(content[posYStart]))
+            posYStart++;
         layout.posY = std::stof(content.substr(posYStart));
-        
+
         // Extract sizeX
         size_t sizeXStart = content.find("\"sizeX\":", posYStart);
         sizeXStart += 8;
-        while (isspace(content[sizeXStart])) sizeXStart++;
+        while (isspace(content[sizeXStart]))
+            sizeXStart++;
         layout.sizeX = std::stof(content.substr(sizeXStart));
-        
+
         // Extract sizeY
         size_t sizeYStart = content.find("\"sizeY\":", sizeXStart);
         sizeYStart += 8;
-        while (isspace(content[sizeYStart])) sizeYStart++;
+        while (isspace(content[sizeYStart]))
+            sizeYStart++;
         layout.sizeY = std::stof(content.substr(sizeYStart));
-        
+
         // Extract isCollapsed
         size_t collapsedStart = content.find("\"isCollapsed\":", sizeYStart);
         collapsedStart += 14;
-        while (isspace(content[collapsedStart])) collapsedStart++;
+        while (isspace(content[collapsedStart]))
+            collapsedStart++;
         layout.isCollapsed = (content.substr(collapsedStart, 4) == "true");
-        
+
         layout.isValid = true;
         g_savedLayout.push_back(layout);
-        
+
         pos = collapsedStart + 4;
     }
 
@@ -454,7 +464,7 @@ bool loadWindowLayout(const char* filename)
 
     g_pendingAction = LayoutAction::Load;
     g_pendingLayoutFilename = filename;
-    
+
     spdlog::info("Window layout loaded from: {} ({} windows)", filename, g_savedLayout.size());
     return true;
 }
@@ -527,8 +537,8 @@ void displayPlayer(const Player& player)
     {
         float hpFrac = d.hp_max > 0 ? std::clamp(static_cast<float>(d.hp) / d.hp_max, 0.0f, 1.0f) : 0.0f;
         ImVec4 hpColor = hpFrac > 0.5f ? ImVec4(0.0f, 1.0f, 0.0f, 1.0f)
-                        : hpFrac > 0.25f ? ImVec4(1.0f, 1.0f, 0.0f, 1.0f)
-                        : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+            : hpFrac > 0.25f           ? ImVec4(1.0f, 1.0f, 0.0f, 1.0f)
+                                       : ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
         ImGui::ProgressBar(hpFrac, ImVec2(-1, 0), "");
         // Color the bar (workaround: draw over it with colored rect)
         ImVec2 barMin = ImGui::GetItemRectMin();
@@ -616,7 +626,7 @@ void displayPlayer(const Player& player)
     // --- Attributes ---
     ImGui::Text("Attributes:");
     ImGui::Text("Str: %d (%d)  Int: %d (%d)  Dex: %d (%d)",
-                 d.str, d.str_max, d.intel, d.intel_max, d.dex, d.dex_max);
+        d.str, d.str_max, d.intel, d.intel_max, d.dex, d.dex_max);
     if (d.piety_rank > 0)
         ImGui::Text("Piety: %.*s*****", d.piety_rank, "**********");
     if (d.penance)
@@ -639,7 +649,7 @@ void displayPlayer(const Player& player)
     // Draw 4 rows x 13 columns grid
     for (int row = 0; row < 4; ++row) {
         for (int col = 0; col < 13; ++col) {
-            int slotIdx = row * 13 + col;  // 0..51
+            int slotIdx = row * 13 + col; // 0..51
 
             // Map to letter: 0-25 → a-z, 26-51 → A-Z
             char letter;
@@ -679,7 +689,7 @@ void displayPlayer(const Player& player)
     if (ImGui::CollapsingHeader("Camera (debug)")) {
         ImGui::TextWrapped("phi=%.3f, theta=%.3f", player.camera().phi, player.camera().theta);
         ImGui::TextWrapped("pos: (%.2f, %.2f, %.2f)",
-                           player.camera().pos[0], player.camera().pos[1], player.camera().pos[2]);
+            player.camera().pos[0], player.camera().pos[1], player.camera().pos[2]);
     }
 
     ImGui::End();
@@ -743,7 +753,7 @@ void displayMap(const GameMap& map, const Player& player)
         }
     }
     ImGui::Text("look: %s", directionToString[player.getFacingDirection()]);
-    
+
     auto bounds = map.getBounds();
     for (int y = bounds.y_min; y <= bounds.y_max; ++y) {
         for (int x = bounds.x_min; x <= bounds.x_max; ++x) {
@@ -757,20 +767,62 @@ void displayMap(const GameMap& map, const Player& player)
                 MapType type = *typeOpt;
                 bool vis = map.isVisibleAt(x, y);
                 switch (type) {
-                case MapType::Wall:        glyph = vis ? '#' : '='; color = vis ? glm::vec4(0.5f,0.5f,0.0f,1) : glm::vec4(0.3f,0.3f,0.0f,1); break;
-                case MapType::Floor:       glyph = vis ? '.' : ':'; color = vis ? glm::vec4(0.0f,0.5f,0.0f,1) : glm::vec4(0.0f,0.25f,0.0f,1); break;
-                case MapType::Door:        glyph = '+'; color = glm::vec4(0.3f,0.15f,0.0f,1); break;
-                case MapType::OpenDoor:     glyph = '\''; color = glm::vec4(0.3f,0.15f,0.0f,1); break;
-                case MapType::Item:        glyph = vis ? '!' : 'i'; color = glm::vec4(0.8f,0.8f,0.3f,1); break;
-                case MapType::Water:       glyph = vis ? '~' : 'w'; color = glm::vec4(0.0f,0.3f,0.8f,1); break;
-                case MapType::Lava:        glyph = vis ? 'L' : 'l'; color = glm::vec4(0.8f,0.3f,0.0f,1); break;
-                case MapType::StairUp:     glyph = '<'; color = glm::vec4(0.9f,0.9f,0.95f,1); break;
-                case MapType::StairDown:   glyph = '>'; color = glm::vec4(1.0f,0.4f,0.6f,1); break;   // pink
-                case MapType::StairBranch: glyph = 'B'; color = glm::vec4(0.8f,0.2f,0.9f,1); break;
-                case MapType::Other:       glyph = vis ? 'O' : 'o'; color = glm::vec4(0.0f,0.5f,0.5f,1); break;
-                case MapType::WallMemory:  glyph = '='; color = glm::vec4(0.3f,0.3f,0.0f,1); break;
-                case MapType::FloorMemory: glyph = ':'; color = glm::vec4(0.0f,0.25f,0.0f,1); break;
-                case MapType::Unexplored:  glyph = 'U'; color = glm::vec4(0.5f,0.5f,0.5f,1); break;
+                case MapType::Wall:
+                    glyph = vis ? '#' : '=';
+                    color = vis ? glm::vec4(0.5f, 0.5f, 0.0f, 1) : glm::vec4(0.3f, 0.3f, 0.0f, 1);
+                    break;
+                case MapType::Floor:
+                    glyph = vis ? '.' : ':';
+                    color = vis ? glm::vec4(0.0f, 0.5f, 0.0f, 1) : glm::vec4(0.0f, 0.25f, 0.0f, 1);
+                    break;
+                case MapType::Door:
+                    glyph = '+';
+                    color = glm::vec4(0.3f, 0.15f, 0.0f, 1);
+                    break;
+                case MapType::OpenDoor:
+                    glyph = '\'';
+                    color = glm::vec4(0.3f, 0.15f, 0.0f, 1);
+                    break;
+                case MapType::Item:
+                    glyph = vis ? '!' : 'i';
+                    color = glm::vec4(0.8f, 0.8f, 0.3f, 1);
+                    break;
+                case MapType::Water:
+                    glyph = vis ? '~' : 'w';
+                    color = glm::vec4(0.0f, 0.3f, 0.8f, 1);
+                    break;
+                case MapType::Lava:
+                    glyph = vis ? 'L' : 'l';
+                    color = glm::vec4(0.8f, 0.3f, 0.0f, 1);
+                    break;
+                case MapType::StairUp:
+                    glyph = '<';
+                    color = glm::vec4(0.9f, 0.9f, 0.95f, 1);
+                    break;
+                case MapType::StairDown:
+                    glyph = '>';
+                    color = glm::vec4(1.0f, 0.4f, 0.6f, 1);
+                    break; // pink
+                case MapType::StairBranch:
+                    glyph = 'B';
+                    color = glm::vec4(0.8f, 0.2f, 0.9f, 1);
+                    break;
+                case MapType::Other:
+                    glyph = vis ? 'O' : 'o';
+                    color = glm::vec4(0.0f, 0.5f, 0.5f, 1);
+                    break;
+                case MapType::WallMemory:
+                    glyph = '=';
+                    color = glm::vec4(0.3f, 0.3f, 0.0f, 1);
+                    break;
+                case MapType::FloorMemory:
+                    glyph = ':';
+                    color = glm::vec4(0.0f, 0.25f, 0.0f, 1);
+                    break;
+                case MapType::Unexplored:
+                    glyph = 'U';
+                    color = glm::vec4(0.5f, 0.5f, 0.5f, 1);
+                    break;
                 }
             }
 
@@ -865,7 +917,7 @@ void displayMessageLog(const MessageLog& messageLog)
     s_lastLineCount = currentCount;
 
     ImGui::BeginChild("log_scroll", ImVec2(0, 0), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+        ImGuiWindowFlags_AlwaysVerticalScrollbar);
 
     for (const auto& line : lines) {
         std::string stripped = stripColorTags(line);
@@ -937,9 +989,12 @@ void displayEquipment(const Player& player)
 
     // Armour (base_type=2 items not already shown)
     for (const auto& [slot, item] : d.inv) {
-        if (item.name.empty()) continue;
-        if (item.base_type != 2) continue;
-        if (slot == d.weapon_index || slot == d.offhand_index || slot == d.quiver_item) continue;
+        if (item.name.empty())
+            continue;
+        if (item.base_type != 2)
+            continue;
+        if (slot == d.weapon_index || slot == d.offhand_index || slot == d.quiver_item)
+            continue;
         char al = static_cast<char>(slot < 26 ? 'a' + slot : 'A' + slot - 26);
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%c) %s (worn)", al, item.name.c_str());
         hasEquip = true;
@@ -954,7 +1009,8 @@ void displayEquipment(const Player& player)
     // Full inventory list
     ImGui::BeginChild("EquipInvList", ImVec2(0, 0), ImGuiChildFlags_Borders);
     for (const auto& [slot, item] : d.inv) {
-        if (item.name.empty()) continue;
+        if (item.name.empty())
+            continue;
         char letter = static_cast<char>(slot < 26 ? 'a' + slot : 'A' + slot - 26);
         ImGui::Text("%c - %s", letter, item.name.c_str());
         if (item.count > 1) {
@@ -1083,10 +1139,17 @@ void characterSelectWindow(const NewgameChoice& choice, NetworkManager& net)
 {
     const char* phaseLabel = "Species";
     switch (choice.phase) {
-    case CharSelectPhase::Species:    phaseLabel = "Species";    break;
-    case CharSelectPhase::Background: phaseLabel = "Background"; break;
-    case CharSelectPhase::Weapon:     phaseLabel = "Weapon";     break;
-    default: break;
+    case CharSelectPhase::Species:
+        phaseLabel = "Species";
+        break;
+    case CharSelectPhase::Background:
+        phaseLabel = "Background";
+        break;
+    case CharSelectPhase::Weapon:
+        phaseLabel = "Weapon";
+        break;
+    default:
+        break;
     }
 
     ImGui::SetNextWindowSize(ImVec2(500, 450), ImGuiCond_FirstUseEver);
@@ -1116,9 +1179,9 @@ void characterSelectWindow(const NewgameChoice& choice, NetworkManager& net)
                 continue;
 
             std::sort(rowButtons.begin(), rowButtons.end(),
-                      [](const ChoiceButton* a, const ChoiceButton* b) {
-                          return a->x < b->x;
-                      });
+                [](const ChoiceButton* a, const ChoiceButton* b) {
+                    return a->x < b->x;
+                });
 
             for (size_t i = 0; i < rowButtons.size(); ++i) {
                 const auto& btn = *rowButtons[i];
@@ -1146,7 +1209,7 @@ void characterSelectWindow(const NewgameChoice& choice, NetworkManager& net)
 
                 if (ImGui::Button(btnLabel.c_str())) {
                     spdlog::info("Character select: sending input '{}' for '{}'",
-                                 btn.hotkey, btn.label);
+                        btn.hotkey, btn.label);
                     json inputMsg;
                     inputMsg["msg"] = "input";
                     inputMsg["text"] = std::string(1, btn.hotkey);
@@ -1175,7 +1238,8 @@ void characterSelectWindow(const NewgameChoice& choice, NetworkManager& net)
         ImGui::Spacing();
         ImGui::Separator();
         for (const auto& btn : choice.subButtons) {
-            if (btn.hotkey == '\0') continue;
+            if (btn.hotkey == '\0')
+                continue;
 
             if (btn.highlightColour == 2)
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f, 0.5f, 0.1f, 1.0f));
@@ -1183,7 +1247,7 @@ void characterSelectWindow(const NewgameChoice& choice, NetworkManager& net)
             std::string label = stripColorTags(btn.label);
             if (ImGui::Button(label.c_str())) {
                 spdlog::info("Character select: sending input '{}' for '{}'",
-                             btn.hotkey, btn.label);
+                    btn.hotkey, btn.label);
                 json inputMsg;
                 inputMsg["msg"] = "input";
                 inputMsg["text"] = std::string(1, btn.hotkey);

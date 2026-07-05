@@ -22,8 +22,8 @@ class AudioManager;
 struct InventoryItem {
     std::string name;
     int count = 0;
-    int slot = -1;    // letter index ('a' = 0, 'b' = 1, ...)
-    int idx = -1;     // item type index
+    int slot = -1; // letter index ('a' = 0, 'b' = 1, ...)
+    int idx = -1; // item type index
     int base_type = -1; // 0=weapon, 1=missile, 2=armour, 100=empty
 };
 
@@ -47,7 +47,7 @@ struct PlayerData {
     int sh = 0;
 
     int xl = 0;
-    int progress = 0;  // % progress to next XL
+    int progress = 0; // % progress to next XL
 
     int time = 0;
     int time_delta = 0;
@@ -55,7 +55,7 @@ struct PlayerData {
     int gold = 0;
 
     int str = 0;
-    int intel = 0;     // 'int' is a keyword
+    int intel = 0; // 'int' is a keyword
     int dex = 0;
     int str_max = 0;
     int intel_max = 0;
@@ -64,14 +64,15 @@ struct PlayerData {
     int piety_rank = 0;
     bool penance = false;
 
-    std::vector<std::string> status;   // active status effects
-    std::unordered_map<int, InventoryItem> inv;  // key = slot letter index
+    std::vector<std::string> status; // active status effects
+    std::unordered_map<int, InventoryItem> inv; // key = slot letter index
+    std::unordered_map<int, InventoryItem> equippedItems; //
 
     int weapon_index = -1;
     int offhand_index = -1;
-    bool offhand_weapon = false;  // true if dual-wielding (Coglin)
+    bool offhand_weapon = false; // true if dual-wielding (Coglin)
     int quiver_item = -1;
-    std::string quiver_desc;      // formatted quiver description
+    std::string quiver_desc; // formatted quiver description
     std::string unarmed_attack;
     int unarmed_attack_colour = 7; // default light grey
 
@@ -117,9 +118,9 @@ public:
     }
 
 private:
-    uint64_t m_curTick {};
-    uint64_t m_lastTick {};
-    uint64_t m_gameTurn {};
+    uint64_t m_curTick { };
+    uint64_t m_lastTick { };
+    uint64_t m_gameTurn { };
 };
 
 // primarily responsible for controlling the camera
@@ -127,6 +128,7 @@ class Player : public MessageHandler {
 public:
     void handleMessage(const json& message) override;
     void setAudioManager(AudioManager* audio) { m_audioManager = audio; }
+    void setSpriteManager(SpriteManager* sm) { m_spriteManager = sm; }
 
     const Camera& camera() const { return m_camera; };
     const PlayerData& data() const { return m_data; };
@@ -140,7 +142,11 @@ public:
     float velY() const { return m_velY; }
     void setVelX(float vel_x) { m_velX = vel_x; }
     void setVelY(float vel_y) { m_velY = vel_y; }
-    void scaleVel(float scale) { m_velX *= scale; m_velY *= scale; }
+    void scaleVel(float scale)
+    {
+        m_velX *= scale;
+        m_velY *= scale;
+    }
 
     // Convert camera yaw to one of 8 compass directions (N, NE, E, SE, S, SW, W, NW).
     Direction getFacingDirection() const;
@@ -152,11 +158,12 @@ private:
     void handlePlayerMessage(const json& message);
 
     Camera m_camera;
-    float m_velX {};
-    float m_velY {};
+    float m_velX { };
+    float m_velY { };
     PlayerData m_data;
     int m_lastTime = 0; // for time_delta calculation
-    AudioManager* m_audioManager = nullptr;
+    AudioManager* m_audioManager { };
+    SpriteManager* m_spriteManager { };
 
     static constexpr float s_mouseSensitivity = 0.005;
 };

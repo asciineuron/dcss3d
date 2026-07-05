@@ -26,7 +26,7 @@ private:
     struct SoundClip {
         Uint8* data = nullptr;
         Uint32 length = 0;
-        SDL_AudioSpec spec {};
+        SDL_AudioSpec spec { };
     };
 
     const SoundClip* loadSound(const std::string& name);

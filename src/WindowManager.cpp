@@ -41,7 +41,8 @@ void WindowManager::toggleEquipment()
 
 static void syncMouseMode(SDL_Window* window, bool useRelative)
 {
-    if (!window) return;
+    if (!window)
+        return;
     if (useRelative) {
         SDL_SetWindowRelativeMouseMode(window, true);
     } else {
@@ -55,7 +56,7 @@ void WindowManager::enterQuitConfirm(SDL_Window* window)
     if (m_mode != Mode::QuitConfirm) {
         m_previousMode = m_mode;
         setMode(Mode::QuitConfirm);
-        syncMouseMode(window, false);  // absolute mouse for button clicks
+        syncMouseMode(window, false); // absolute mouse for button clicks
     }
 }
 
@@ -192,7 +193,7 @@ bool WindowManager::handleKeyEvent(SDL_Scancode scancode, SDL_Window* window)
         switch (scancode) {
         case SDL_SCANCODE_ESCAPE:
         case SDL_SCANCODE_E:
-            return true;  // consumed, no-op
+            return true; // consumed, no-op
         default:
             return false;
         }

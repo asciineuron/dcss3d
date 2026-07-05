@@ -17,11 +17,18 @@ void Player::handleMessage(const json& message)
 
     if (message["msg"] != "map")
         return;
+
+    // TODO: track current active equipment (along existing inventory), use to set sprite
+    // update equipment:
+    // then, if visible category changed (i.e. weapon/shield), update spritemanager swing sprite:
 }
 
 void Player::handlePlayerMessage(const json& message)
 {
     // Mirror upstream JS handle_player_message() in player.js:543-593
+
+    // TODO: figure out how to get current EQUIPMENT from messages, track current weapon to set for sprite
+    // or is inv already the equpment? I don't think so
 
     // Save old depth to detect level changes (for camera reset)
     int oldDepth = m_data.depth;
@@ -30,7 +37,7 @@ void Player::handlePlayerMessage(const json& message)
     // 1. Merge inventory items (like JS: $.extend(player.inv[i], data.inv[i]))
     if (auto inv = message.find("inv"); inv != message.end() && inv->is_object()) {
         for (const auto& [key, itemJson] : inv->items()) {
-            int slot = std::stoi(key);  // JS uses string keys like "0", "1", ...
+            int slot = std::stoi(key); // JS uses string keys like "0", "1", ...
             auto& item = m_data.inv[slot];
             item.slot = slot;
             if (auto n = itemJson.find("name"); n != itemJson.end())
@@ -141,12 +148,12 @@ void Player::handlePlayerMessage(const json& message)
     }
 
     spdlog::debug("Player updated: {} XL{} HP:{}/{} MP:{}/{} AC:{} EV:{} SH:{} @ ({},{}) in {}:{}",
-                  m_data.name, m_data.xl, m_data.hp, m_data.hp_max,
-                  m_data.mp, m_data.mp_max, m_data.ac, m_data.ev, m_data.sh,
-                  m_data.pos_x, m_data.pos_y, m_data.place, m_data.depth);
+        m_data.name, m_data.xl, m_data.hp, m_data.hp_max,
+        m_data.mp, m_data.mp_max, m_data.ac, m_data.ev, m_data.sh,
+        m_data.pos_x, m_data.pos_y, m_data.place, m_data.depth);
     spdlog::debug("  Equipment: w_idx={} off_idx={} off_wpn={} q_item={} q_desc='{}' unarmed='{}'",
-                  m_data.weapon_index, m_data.offhand_index, m_data.offhand_weapon,
-                  m_data.quiver_item, m_data.quiver_desc, m_data.unarmed_attack);
+        m_data.weapon_index, m_data.offhand_index, m_data.offhand_weapon,
+        m_data.quiver_item, m_data.quiver_desc, m_data.unarmed_attack);
 
     // When the player changes levels (depth or place change), reset the
     // camera to the player's new position.  The server resets m_origin on
@@ -154,7 +161,7 @@ void Player::handlePlayerMessage(const json& message)
     bool depthChanged = (oldDepth != 0 && m_data.depth != oldDepth);
     bool placeChanged = (!oldPlace.empty() && m_data.place != oldPlace);
     if (depthChanged || placeChanged) {
-        glm::vec2 renderPos = mapCoordToRender({m_data.pos_x, m_data.pos_y});
+        glm::vec2 renderPos = mapCoordToRender({ m_data.pos_x, m_data.pos_y });
         m_camera.pos[0] = renderPos.x;
         m_camera.pos[2] = renderPos.y;
         // Reset movement velocity so the player doesn't immediately
@@ -162,7 +169,7 @@ void Player::handlePlayerMessage(const json& message)
         m_velX = 0.0f;
         m_velY = 0.0f;
         spdlog::debug("Level change detected: depth {}->{} place '{}'->'{}', camera reset to ({:.1f}, {:.1f})",
-                      oldDepth, m_data.depth, oldPlace, m_data.place, renderPos.x, renderPos.y);
+            oldDepth, m_data.depth, oldPlace, m_data.place, renderPos.x, renderPos.y);
     }
 }
 
@@ -171,7 +178,7 @@ Direction Player::getFacingDirection() const
     // theta ranges [0, 2π). Divide into 8 π/4 sectors, offset by π/8
     // so sectors are centered on compass directions.
     // Camera look: theta=0→+X(East), pi/2→-Z(North), pi→-X(West), 3pi/2→+Z(South)
-    const float sector = pi_v<float> / 8.0f;  // π/8
+    const float sector = pi_v<float> / 8.0f; // π/8
     float t = m_camera.theta;
 
     using enum Direction;
@@ -198,10 +205,14 @@ Pos2<int> Player::getTargetCell() const
     int dx = 0, dy = 0;
     // Game coordinate offsets: North = -y, South = +y, East = +x, West = -x
     // (same convention as GameMap::shift)
-    if (dir & North) dy -= 1;
-    if (dir & South) dy += 1;
-    if (dir & East)  dx += 1;
-    if (dir & West)  dx -= 1;
+    if (dir & North)
+        dy -= 1;
+    if (dir & South)
+        dy += 1;
+    if (dir & East)
+        dx += 1;
+    if (dir & West)
+        dx -= 1;
     return { m_data.pos_x + dx, m_data.pos_y + dy };
 }
 
@@ -277,10 +288,14 @@ std::unique_ptr<Turn> Player::updatePosition(GameTime& gameTime, const GameMap& 
         if (tileOpt && *tileOpt == MapType::Door) {
             // Determine intended movement direction from displacement
             Direction intendedDir = None;
-            if (x_disp > 0.01f) intendedDir = (Direction)(intendedDir | East);
-            if (x_disp < -0.01f) intendedDir = (Direction)(intendedDir | West);
-            if (y_disp > 0.01f) intendedDir = (Direction)(intendedDir | South);
-            if (y_disp < -0.01f) intendedDir = (Direction)(intendedDir | North);
+            if (x_disp > 0.01f)
+                intendedDir = (Direction)(intendedDir | East);
+            if (x_disp < -0.01f)
+                intendedDir = (Direction)(intendedDir | West);
+            if (y_disp > 0.01f)
+                intendedDir = (Direction)(intendedDir | South);
+            if (y_disp < -0.01f)
+                intendedDir = (Direction)(intendedDir | North);
             if (intendedDir != None) {
                 spdlog::debug("door collision, sending turn: {}", directionToString[intendedDir]);
                 // Reset camera to center of current player cell

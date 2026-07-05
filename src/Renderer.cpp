@@ -3,10 +3,10 @@
 #include "MonsterModelMap.hpp"
 #include "ObjectModelMap.hpp"
 #include "WindowManager.hpp"
-#include "imguilayouts.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlgpu3.h"
+#include "imguilayouts.hpp"
 #include <SDL3/SDL_gpu.h>
 #include <SDL3_image/SDL_image.h>
 #include <cstdint>
@@ -46,7 +46,6 @@ glm::mat4 Camera::toSkyViewProjection() const
     // This keeps the skybox centered on the camera regardless of position.
     return perspective * glm::mat4(glm::mat3(lookAt));
 }
-
 
 Renderer::Renderer()
     : m_window { nullptr }
@@ -106,7 +105,7 @@ Renderer::Renderer()
 
     // Setup Platform/Renderer backends
     ImGui_ImplSDL3_InitForSDLGPU(m_window);
-    ImGui_ImplSDLGPU3_InitInfo initInfo = {};
+    ImGui_ImplSDLGPU3_InitInfo initInfo = { };
     initInfo.Device = m_GPUDevice;
     initInfo.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(m_GPUDevice, m_window);
     initInfo.PresentMode = SDL_GPU_PRESENTMODE_VSYNC;
@@ -269,7 +268,7 @@ void Renderer::pushMonsterToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf
 
         const Monster& mon = tableIt->second;
         const std::string& modelFile = getMonsterModelFile(mon);
-        grouped[modelFile].push_back({pos, &mon});
+        grouped[modelFile].push_back({ pos, &mon });
     }
 
     // Push each group to its corresponding model
@@ -312,7 +311,7 @@ void Renderer::pushObjectsToGPU(const GameMap& map, SDL_GPUCommandBuffer* cmdBuf
         std::vector<std::pair<Pos2<int>, const Monster*>> dummy;
         dummy.reserve(positions.size());
         for (const auto& pos : positions)
-            dummy.push_back({pos, &s_dummyObject});
+            dummy.push_back({ pos, &s_dummyObject });
         model->pushMonsterData(dummy, cmdBuf);
     }
 }
@@ -321,7 +320,7 @@ Renderer::~Renderer()
     // shared ptrs automatically deleted with proper funcs
     // TODO causes segfault, maybe since child Model class frees afterwards?
     m_mapCubeModel->release();
-    m_skybox.reset();  // release before GPU device is destroyed
+    m_skybox.reset(); // release before GPU device is destroyed
 
     // Release all cached monster models
     for (auto& [file, model] : m_monsterModelCache) {
@@ -412,9 +411,9 @@ void Model::loadObj(std::string_view filename)
             // Quads are triangulated into two triangles: (0,1,2) and (0,2,3).
 
             struct ObjIndex {
-                int vIdx;   // vertex index, 0-based
-                int tIdx;   // texture index, 0-based (0 = absent)
-                int nIdx;   // normal index, 0-based (0 = absent)
+                int vIdx; // vertex index, 0-based
+                int tIdx; // texture index, 0-based (0 = absent)
+                int nIdx; // normal index, 0-based (0 = absent)
             };
 
             // Parse vertex/texture/normal indices from formats like "5", "5/1", "5/1/1", "5//1"
@@ -423,7 +422,7 @@ void Model::loadObj(std::string_view filename)
                 size_t slash1 = s.find('/');
                 int vIdx = std::stoi(s.substr(0, slash1)) - 1; // 0-based
                 int tIdx = 0;
-                int nIdx = 0;  // 0 = absent, 1+ = OBJ normal index
+                int nIdx = 0; // 0 = absent, 1+ = OBJ normal index
                 if (slash1 != std::string::npos) {
                     size_t slash2 = s.find('/', slash1 + 1);
                     std::string texPart = s.substr(slash1 + 1, slash2 - slash1 - 1);
@@ -437,7 +436,7 @@ void Model::loadObj(std::string_view filename)
                         }
                     }
                 }
-                return {vIdx, tIdx, nIdx};
+                return { vIdx, tIdx, nIdx };
             };
 
             // Collect all face vertex strings (3 or 4)
@@ -446,26 +445,25 @@ void Model::loadObj(std::string_view filename)
             while (ss >> v)
                 faceVerts.push_back(v);
 
-            if (faceVerts.size() < 3) continue; // malformed
+            if (faceVerts.size() < 3)
+                continue; // malformed
 
             // Emit triangle 0-1-2
             auto i0 = parseObjIndex(faceVerts[0]);
             auto i1 = parseObjIndex(faceVerts[1]);
             auto i2 = parseObjIndex(faceVerts[2]);
-            m_faces.push_back({
-                {static_cast<Uint16>(i0.vIdx), static_cast<Uint16>(i1.vIdx), static_cast<Uint16>(i2.vIdx)},
-                {static_cast<Uint16>(i0.tIdx), static_cast<Uint16>(i1.tIdx), static_cast<Uint16>(i2.tIdx)},
-                {static_cast<Uint16>(i0.nIdx), static_cast<Uint16>(i1.nIdx), static_cast<Uint16>(i2.nIdx)}
-            });
+            m_faces.push_back(
+                { { static_cast<Uint16>(i0.vIdx), static_cast<Uint16>(i1.vIdx), static_cast<Uint16>(i2.vIdx) },
+                    { static_cast<Uint16>(i0.tIdx), static_cast<Uint16>(i1.tIdx), static_cast<Uint16>(i2.tIdx) },
+                    { static_cast<Uint16>(i0.nIdx), static_cast<Uint16>(i1.nIdx), static_cast<Uint16>(i2.nIdx) } });
 
             // If quad, emit second triangle 0-2-3
             if (faceVerts.size() >= 4) {
                 auto i3 = parseObjIndex(faceVerts[3]);
-                m_faces.push_back({
-                    {static_cast<Uint16>(i0.vIdx), static_cast<Uint16>(i2.vIdx), static_cast<Uint16>(i3.vIdx)},
-                    {static_cast<Uint16>(i0.tIdx), static_cast<Uint16>(i2.tIdx), static_cast<Uint16>(i3.tIdx)},
-                    {static_cast<Uint16>(i0.nIdx), static_cast<Uint16>(i2.nIdx), static_cast<Uint16>(i3.nIdx)}
-                });
+                m_faces.push_back(
+                    { { static_cast<Uint16>(i0.vIdx), static_cast<Uint16>(i2.vIdx), static_cast<Uint16>(i3.vIdx) },
+                        { static_cast<Uint16>(i0.tIdx), static_cast<Uint16>(i2.tIdx), static_cast<Uint16>(i3.tIdx) },
+                        { static_cast<Uint16>(i0.nIdx), static_cast<Uint16>(i2.nIdx), static_cast<Uint16>(i3.nIdx) } });
             }
         } else {
             continue;
@@ -479,7 +477,7 @@ void Model::loadObj(std::string_view filename)
 
     std::vector<glm::vec3> expandedVertices;
     std::vector<glm::vec3> expandedNormals;
-    std::vector<glm::vec2> expandedUVs;  // Store expanded UVs
+    std::vector<glm::vec2> expandedUVs; // Store expanded UVs
     std::vector<Face> newFaces;
 
     for (size_t f = 0; f < m_faces.size(); ++f) {
@@ -557,19 +555,20 @@ void Model::loadObj(std::string_view filename)
         // New face references the expanded indices
         newFaces.push_back({
             { static_cast<Uint16>(baseIdx), static_cast<Uint16>(baseIdx + 1), static_cast<Uint16>(baseIdx + 2) },
-            { 0, 0, 0 }  // no longer used but keep for compatibility
+            { 0, 0, 0 } // no longer used but keep for compatibility TODO resolve/simplify this
         });
     }
 
     m_vertices = std::move(expandedVertices);
     m_normals = std::move(expandedNormals);
-    m_uvs = std::move(expandedUVs);  // Store expanded UVs
+    m_uvs = std::move(expandedUVs); // Store expanded UVs
     m_faces = std::move(newFaces);
 }
 
 void Model::scaleToUnitCube()
 {
-    if (m_vertices.empty()) return;
+    if (m_vertices.empty())
+        return;
 
     // Find bounding box
     glm::vec3 min = m_vertices[0];
@@ -580,8 +579,9 @@ void Model::scaleToUnitCube()
     }
 
     glm::vec3 extent = max - min;
-    float maxExtent = std::max({extent.x, extent.y, extent.z});
-    if (maxExtent < 0.0001f) return; // degenerate
+    float maxExtent = std::max({ extent.x, extent.y, extent.z });
+    if (maxExtent < 0.0001f)
+        return; // degenerate
 
     float scale = 1.0f / maxExtent;
     glm::vec3 center = (min + max) * 0.5f;
@@ -596,11 +596,13 @@ void Model::scaleToUnitCube()
     // Re-normalize normals (uniform scale preserves direction).
     for (auto& n : m_normals) {
         float len = glm::length(n);
-        if (len > 0.0001f) n /= len;
+        if (len > 0.0001f)
+            n /= len;
     }
     for (auto& n : m_rawNormals) {
         float len = glm::length(n);
-        if (len > 0.0001f) n /= len;
+        if (len > 0.0001f)
+            n /= len;
     }
 }
 
@@ -655,12 +657,12 @@ void BufferedModel::uploadModel()
     // UV (float2) also needs 16-byte alignment in Metal, so we pad it.
     // Total stride = 48 bytes per vertex.
     struct VertexPNU {
-        float pos[3];     // offset 0, GPU reads 16 bytes (12 + 4 pad)
-        float _pad1[1];    // offset 12, padding to align normal to 16
-        float normal[3];   // offset 16, GPU reads 16 bytes (12 + 4 pad)
-        float _pad2[1];   // offset 28, padding to align UV to 16
-        float uv[2];       // offset 32, GPU reads 16 bytes (8 + 8 pad)
-        float _pad3[2];   // offset 40, padding to make total 48 bytes
+        float pos[3]; // offset 0, GPU reads 16 bytes (12 + 4 pad)
+        float _pad1[1]; // offset 12, padding to align normal to 16
+        float normal[3]; // offset 16, GPU reads 16 bytes (12 + 4 pad)
+        float _pad2[1]; // offset 28, padding to align UV to 16
+        float uv[2]; // offset 32, GPU reads 16 bytes (8 + 8 pad)
+        float _pad3[2]; // offset 40, padding to make total 48 bytes
     };
     static_assert(sizeof(VertexPNU) == 48, "VertexPNU must be 48 bytes for Metal alignment");
     VertexPNU* vertexTransfer = (VertexPNU*)SDL_MapGPUTransferBuffer(m_GPUDevice, tempVertexIndexTransfer, false);
@@ -823,7 +825,7 @@ MapDisplacedBufferedModel::MapDisplacedBufferedModel(SDL_GPUDevice* gpu, SDL_Win
     : BufferedModel(gpu, window, std::move(model), vertex, fragment, textureFilename)
 {
     SDL_GPUBufferCreateInfo mapBufferCreateInfo = {
-        .usage = SDL_GPU_BUFFERUSAGE_VERTEX,  // Must be VERTEX for slot 1 (Metal restriction)
+        .usage = SDL_GPU_BUFFERUSAGE_VERTEX, // Must be VERTEX for slot 1 (Metal restriction)
         .size = (Uint32)(s_maxRenderCopies * sizeof(DisplacementColorInfo))
     };
     m_mapDataBuffer = SDL_CreateGPUBuffer(m_GPUDevice, &mapBufferCreateInfo);
@@ -842,7 +844,8 @@ void MapDisplacedBufferedModel::pushMapData(const GameMap& map, Pos2<int> player
     // Explored-but-not-visible cells are rendered dimmed to distinguish them
     // from currently-lit cells.  Unexplored cells are never rendered.
     auto shouldRender = [](const Tile& tile) {
-        if (tile.isVisible()) return true;
+        if (tile.isVisible())
+            return true;
         // Fog-of-war cells: seen but not currently visible.
         // Only render if they aren't Unexplored.
         return tile.seen() && tile.type() != MapType::Unexplored;
@@ -998,17 +1001,31 @@ void MonsterBufferedModel::pushMonsterData(
 
         mapped[idx].shiftX = renderCoords2D.x;
         mapped[idx].shiftY = renderCoords2D.y;
-        mapped[idx].tileType = 999.0f;  // sentinel: don't sink, it's a monster
+        mapped[idx].tileType = 999.0f; // sentinel: don't sink, it's a monster
         mapped[idx].padding = 0.0f;
         // Color by attitude: 0=hostile(red), 1=neutral(yellow), 3=good_neutral(green), 4=friendly(blue), 5=marionette(purple)
         switch (mon.att()) {
-            case 0: mapped[idx].color = glm::vec4(1.0f, 0.2f, 0.2f, 1.0f); break; // hostile — red
-            case 1: mapped[idx].color = glm::vec4(1.0f, 1.0f, 0.2f, 1.0f); break; // neutral — yellow
-            case 2: mapped[idx].color = glm::vec4(0.8f, 0.8f, 0.2f, 1.0f); break; // strict_neutral — olive
-            case 3: mapped[idx].color = glm::vec4(0.2f, 0.8f, 0.2f, 1.0f); break; // good_neutral — green
-            case 4: mapped[idx].color = glm::vec4(0.3f, 0.5f, 1.0f, 1.0f); break; // friendly — blue
-            case 5: mapped[idx].color = glm::vec4(0.7f, 0.3f, 0.9f, 1.0f); break; // marionette — purple
-            default: mapped[idx].color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f); break; // unknown — gray
+        case 0:
+            mapped[idx].color = glm::vec4(1.0f, 0.2f, 0.2f, 1.0f);
+            break; // hostile — red
+        case 1:
+            mapped[idx].color = glm::vec4(1.0f, 1.0f, 0.2f, 1.0f);
+            break; // neutral — yellow
+        case 2:
+            mapped[idx].color = glm::vec4(0.8f, 0.8f, 0.2f, 1.0f);
+            break; // strict_neutral — olive
+        case 3:
+            mapped[idx].color = glm::vec4(0.2f, 0.8f, 0.2f, 1.0f);
+            break; // good_neutral — green
+        case 4:
+            mapped[idx].color = glm::vec4(0.3f, 0.5f, 1.0f, 1.0f);
+            break; // friendly — blue
+        case 5:
+            mapped[idx].color = glm::vec4(0.7f, 0.3f, 0.9f, 1.0f);
+            break; // marionette — purple
+        default:
+            mapped[idx].color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+            break; // unknown — gray
         }
 
         ++idx;
@@ -1036,8 +1053,7 @@ void MonsterBufferedModel::pushMonsterData(
         .transfer_buffer = m_monsterTransferBuf, .offset = 0
     };
     SDL_GPUBufferRegion instanceRegion = {
-        .buffer = m_monsterInstanceBuffer, .offset = 0,
-        .size = s_maxMonsterInstances * sizeof(DisplacementColorInfo)
+        .buffer = m_monsterInstanceBuffer, .offset = 0, .size = s_maxMonsterInstances * sizeof(DisplacementColorInfo)
     };
     SDL_UploadToGPUBuffer(copyPass, &instanceLocation, &instanceRegion, true);
 
@@ -1106,7 +1122,6 @@ MonsterBufferedModel::~MonsterBufferedModel()
     release();
 }
 
-
 SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Window* window, ShaderParameters vertex, ShaderParameters fragment)
 {
     SDL_GPUShader* vertexShader = loadShader(m_GPUDevice, vertex);
@@ -1118,27 +1133,27 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         { .location = 0,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .offset = 0 },                       // position at offset 0
+            .offset = 0 }, // position at offset 0
         { .location = 1,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .offset = 16 },                      // normal at offset 16 (float3 = 16 bytes in Metal)
+            .offset = 16 }, // normal at offset 16 (float3 = 16 bytes in Metal)
         { .location = 2,
             .buffer_slot = 1,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-            .offset = 0 },                       // tile shift at offset 0
+            .offset = 0 }, // tile shift at offset 0
         { .location = 3,
             .buffer_slot = 1,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
-            .offset = 16 },                      // tile color at offset 16
+            .offset = 16 }, // tile color at offset 16
         { .location = 4,
             .buffer_slot = 0,
             .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
-            .offset = 32 },                      // UV at offset 32
+            .offset = 32 }, // UV at offset 32
     };
     SDL_GPUVertexBufferDescription vertexBufferDescriptions[] = {
         { .slot = 0,
-            .pitch = 48,                         // stride: position(16) + normal(16) + UV(16) = 48 bytes
+            .pitch = 48, // stride: position(16) + normal(16) + UV(16) = 48 bytes
             .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
             .instance_step_rate = 0 },
         { .slot = 1,
@@ -1152,7 +1167,7 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         .vertex_buffer_descriptions = vertexBufferDescriptions,
         .num_vertex_buffers = 2,
         .vertex_attributes = vertexAttributes,
-        .num_vertex_attributes = 5,             // position + normal + shift + color + UV
+        .num_vertex_attributes = 5, // position + normal + shift + color + UV
     };
     SDL_GPUColorTargetBlendState blendState = {
         .enable_blend = true,
@@ -1167,11 +1182,11 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
     SDL_GPUColorTargetDescription colorTargetDescriptions[] = {
         { .format = SDL_GetGPUSwapchainTextureFormat(
               m_GPUDevice, window),
-          .blend_state = blendState }
+            .blend_state = blendState }
     };
     SDL_GPURasterizerState rasterizer_state = {
-        .fill_mode = SDL_GPU_FILLMODE_FILL,    // Filled polygons (not wireframe)
-        .cull_mode = SDL_GPU_CULLMODE_BACK,    // Cull back faces
+        .fill_mode = SDL_GPU_FILLMODE_FILL, // Filled polygons (not wireframe)
+        .cull_mode = SDL_GPU_CULLMODE_BACK, // Cull back faces
         .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
         .depth_bias_constant_factor = 0.0f,
         .depth_bias_clamp = 0.0f,
@@ -1180,9 +1195,9 @@ SDL_GPUGraphicsPipeline* BufferedModel::createGraphicsPipelineWithShaders(SDL_Wi
         .enable_depth_clip = true,
     };
     SDL_GPUDepthStencilState depthStencilState = {
-        .compare_op = SDL_GPU_COMPAREOP_LESS,  // Pass if new depth < stored depth
-        .back_stencil_state = {},
-        .front_stencil_state = {},
+        .compare_op = SDL_GPU_COMPAREOP_LESS, // Pass if new depth < stored depth
+        .back_stencil_state = { },
+        .front_stencil_state = { },
         .compare_mask = 0,
         .write_mask = 0,
         .enable_depth_test = true,

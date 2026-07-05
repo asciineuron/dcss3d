@@ -1,7 +1,7 @@
 #include "Turn.hpp"
+#include "AudioManager.hpp"
 #include <SDL3/SDL_scancode.h>
 #include <spdlog/spdlog.h>
-#include "AudioManager.hpp"
 
 // Array indexed by Direction enum values (which are non-sequential bitmask values).
 // Ensure each enum value maps to the correct string.
@@ -120,6 +120,11 @@ AttackTurn::AttackTurn(Direction direction)
 {
 }
 
+void AttackTurn::triggerAnimation(SpriteManager& sm) const
+{
+    sm.doSwing();
+}
+
 json AttackTurn::asMessage() const
 {
     // Map compass direction to the corresponding vim key for Ctrl-attack.
@@ -131,14 +136,30 @@ json AttackTurn::asMessage() const
     int ctrlKeycode = 0;
     using enum Direction;
     switch (m_direction) {
-    case North:     ctrlKeycode = 'K' - 'A' + 1; break;
-    case South:     ctrlKeycode = 'J' - 'A' + 1; break;
-    case East:      ctrlKeycode = 'L' - 'A' + 1; break;
-    case West:      ctrlKeycode = 'H' - 'A' + 1; break;
-    case NorthEast: ctrlKeycode = 'U' - 'A' + 1; break;
-    case SouthEast: ctrlKeycode = 'N' - 'A' + 1; break;
-    case SouthWest: ctrlKeycode = 'B' - 'A' + 1; break;
-    case NorthWest: ctrlKeycode = 'Y' - 'A' + 1; break;
+    case North:
+        ctrlKeycode = 'K' - 'A' + 1;
+        break;
+    case South:
+        ctrlKeycode = 'J' - 'A' + 1;
+        break;
+    case East:
+        ctrlKeycode = 'L' - 'A' + 1;
+        break;
+    case West:
+        ctrlKeycode = 'H' - 'A' + 1;
+        break;
+    case NorthEast:
+        ctrlKeycode = 'U' - 'A' + 1;
+        break;
+    case SouthEast:
+        ctrlKeycode = 'N' - 'A' + 1;
+        break;
+    case SouthWest:
+        ctrlKeycode = 'B' - 'A' + 1;
+        break;
+    case NorthWest:
+        ctrlKeycode = 'Y' - 'A' + 1;
+        break;
     default:
         throw std::logic_error("invalid attack direction");
     }

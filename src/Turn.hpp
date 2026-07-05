@@ -7,6 +7,30 @@
 using json = nlohmann::json;
 
 class AudioManager;
+class SpriteModel;
+
+// TODO how to trigger animation from class Turn without too much coupling but more than bare enum?
+// fewer states than sound effects (e.g. generic zap or swing, then renderer handles appropriate animation?)
+// yeah... we also need a way of the player inventory (i.e. when it changes from the network) to trigger a sprite change for equipment
+
+enum class SpecialEffect {
+    FrostZap,
+    LevelUpFlash
+};
+
+class SpriteManager {
+public:
+    SpriteManager();
+    ~SpriteManager();
+
+    void doSpecialEffect(SpecialEffect);
+    void setSwingSprite(std::string_view); // persists unlike effect
+    void doSwing();
+
+private:
+    std::unordered_map<std::string, std::unique_ptr<SpriteModel>> m_SpriteCache; // effects and previous/current swing sprites
+    SpriteModel* m_swingSprite; // current swing sprite
+};
 
 class Turn {
 public:
@@ -15,7 +39,9 @@ public:
 
     // Called after the turn is sent to the server.
     // Subclasses override to produce appropriate sound effects.
-    virtual void playSound(AudioManager& audio) const {}
+    virtual void playSound(AudioManager&) const { }
+
+    virtual void triggerAnimation(SpriteManager&) const { } // set some # of effects and/or swing
 };
 
 enum Direction {
@@ -81,6 +107,8 @@ class AttackTurn : public Turn {
 public:
     AttackTurn(Direction);
     json asMessage() const override;
+
+    void triggerAnimation(SpriteManager&) const override;
 
 private:
     Direction m_direction;

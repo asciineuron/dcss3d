@@ -27,7 +27,7 @@ void MessageLog::handleMessage(const json& message)
             }
         }
         spdlog::debug("MessageLog: received {} messages, total {} (count {})",
-                      messagesIt->size(), m_lines.size(), m_lineCount);
+            messagesIt->size(), m_lines.size(), m_lineCount);
         return;
     }
 
@@ -44,12 +44,12 @@ void MessageLog::handleMessage(const json& message)
             }
         }
         spdlog::debug("MessageLog: received {} legacy lines, total {} (count {})",
-                      linesIt->size(), m_lines.size(), m_lineCount);
+            linesIt->size(), m_lines.size(), m_lineCount);
     }
 }
 
 std::vector<std::string> MessageLog::getLines() const
 {
     std::lock_guard lock(m_mutex);
-    return {m_lines.begin(), m_lines.end()};
+    return { m_lines.begin(), m_lines.end() };
 }

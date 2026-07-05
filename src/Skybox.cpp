@@ -1,38 +1,84 @@
-#include "ShaderUtil.hpp"
 #include "Skybox.hpp"
+#include "ShaderUtil.hpp"
 #include <SDL3_image/SDL_image.h>
-#include <spdlog/spdlog.h>
 #include <array>
+#include <spdlog/spdlog.h>
 
 // Unit cube centered at origin. 8 vertices, 36 indices (12 triangles).
 // We hardcode this since the skybox only needs positions (no normals/UVs).
 static constexpr std::array<float, 24> s_cubeVertices = {
     // positions (x, y, z)
-    -0.5f, -0.5f, -0.5f, // 0
-     0.5f, -0.5f, -0.5f, // 1
-     0.5f,  0.5f, -0.5f, // 2
-    -0.5f,  0.5f, -0.5f, // 3
-    -0.5f, -0.5f,  0.5f, // 4
-     0.5f, -0.5f,  0.5f, // 5
-     0.5f,  0.5f,  0.5f, // 6
-    -0.5f,  0.5f,  0.5f, // 7
+    -0.5f,
+    -0.5f,
+    -0.5f, // 0
+    0.5f,
+    -0.5f,
+    -0.5f, // 1
+    0.5f,
+    0.5f,
+    -0.5f, // 2
+    -0.5f,
+    0.5f,
+    -0.5f, // 3
+    -0.5f,
+    -0.5f,
+    0.5f, // 4
+    0.5f,
+    -0.5f,
+    0.5f, // 5
+    0.5f,
+    0.5f,
+    0.5f, // 6
+    -0.5f,
+    0.5f,
+    0.5f, // 7
 };
 
 // Triangle indices for the 6 cube faces (36 total).
 // Winding order doesn't matter since we disable culling for the skybox.
 static constexpr std::array<Uint16, 36> s_cubeIndices = {
     // -Z face (front)
-    0, 3, 2, 2, 1, 0,
+    0,
+    3,
+    2,
+    2,
+    1,
+    0,
     // +Z face (back)
-    5, 6, 7, 7, 4, 5,
+    5,
+    6,
+    7,
+    7,
+    4,
+    5,
     // -X face (left)
-    4, 7, 3, 3, 0, 4,
+    4,
+    7,
+    3,
+    3,
+    0,
+    4,
     // +X face (right)
-    1, 2, 6, 6, 5, 1,
+    1,
+    2,
+    6,
+    6,
+    5,
+    1,
     // -Y face (bottom)
-    4, 0, 1, 1, 5, 4,
+    4,
+    0,
+    1,
+    1,
+    5,
+    4,
     // +Y face (top)
-    3, 7, 6, 6, 2, 3,
+    3,
+    7,
+    6,
+    6,
+    2,
+    3,
 };
 
 // Helper: load a compiled shader file (same logic as Renderer.cpp)
@@ -46,15 +92,15 @@ SDL_GPUGraphicsPipeline* Skybox::createSkyboxPipeline(SDL_Window* window)
     // Position-only vertex input (float3, 12 bytes, but Metal requires 16-byte alignment)
     SDL_GPUVertexAttribute vertexAttributes[] = {
         { .location = 0,
-          .buffer_slot = 0,
-          .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
-          .offset = 0 },
+            .buffer_slot = 0,
+            .format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+            .offset = 0 },
     };
     SDL_GPUVertexBufferDescription vertexBufferDescriptions[] = {
         { .slot = 0,
-          .pitch = 16,   // float3 padded to 16 bytes for Metal alignment
-          .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
-          .instance_step_rate = 0 },
+            .pitch = 16, // float3 padded to 16 bytes for Metal alignment
+            .input_rate = SDL_GPU_VERTEXINPUTRATE_VERTEX,
+            .instance_step_rate = 0 },
     };
     SDL_GPUVertexInputState vertexInputState = {
         .vertex_buffer_descriptions = vertexBufferDescriptions,
@@ -69,7 +115,7 @@ SDL_GPUGraphicsPipeline* Skybox::createSkyboxPipeline(SDL_Window* window)
 
     SDL_GPURasterizerState rasterizerState = {
         .fill_mode = SDL_GPU_FILLMODE_FILL,
-        .cull_mode = SDL_GPU_CULLMODE_NONE,   // no culling — camera is inside the cube
+        .cull_mode = SDL_GPU_CULLMODE_NONE, // no culling — camera is inside the cube
         .front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE,
         .depth_bias_constant_factor = 0.0f,
         .depth_bias_clamp = 0.0f,
@@ -83,12 +129,12 @@ SDL_GPUGraphicsPipeline* Skybox::createSkyboxPipeline(SDL_Window* window)
     // no scene geometry was drawn (since scene depths are < 1.0).
     SDL_GPUDepthStencilState depthStencilState = {
         .compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL,
-        .back_stencil_state = {},
-        .front_stencil_state = {},
+        .back_stencil_state = { },
+        .front_stencil_state = { },
         .compare_mask = 0xFF,
         .write_mask = 0,
         .enable_depth_test = true,
-        .enable_depth_write = false,  // don't write depth — skybox is "at infinity"
+        .enable_depth_write = false, // don't write depth — skybox is "at infinity"
         .enable_stencil_test = false,
     };
 
@@ -155,7 +201,7 @@ void Skybox::uploadCubeMesh()
 
     // For Metal alignment: float3 positions need 16-byte stride, not 12.
     // We need to pad each vertex from 12 bytes to 16 bytes.
-    Uint32 paddedVertexStride = 16;  // 4 floats (x,y,z,pad)
+    Uint32 paddedVertexStride = 16; // 4 floats (x,y,z,pad)
     Uint32 paddedVertexDataSize = m_vertexCount * paddedVertexStride;
 
     Uint32 totalTransferSize = paddedVertexDataSize + indexDataSize;
@@ -172,10 +218,10 @@ void Skybox::uploadCubeMesh()
     Uint8* mapped = static_cast<Uint8*>(SDL_MapGPUTransferBuffer(m_GPUDevice, transferBuf, false));
     for (Uint32 i = 0; i < m_vertexCount; ++i) {
         float* dest = reinterpret_cast<float*>(mapped + i * paddedVertexStride);
-        dest[0] = s_cubeVertices[i * 3 + 0];  // x
-        dest[1] = s_cubeVertices[i * 3 + 1];  // y
-        dest[2] = s_cubeVertices[i * 3 + 2];  // z
-        dest[3] = 0.0f;                         // padding
+        dest[0] = s_cubeVertices[i * 3 + 0]; // x
+        dest[1] = s_cubeVertices[i * 3 + 1]; // y
+        dest[2] = s_cubeVertices[i * 3 + 2]; // z
+        dest[3] = 0.0f; // padding
     }
     // Copy index data after vertex data
     std::memcpy(mapped + paddedVertexDataSize, s_cubeIndices.data(), indexDataSize);
@@ -247,12 +293,20 @@ void Skybox::loadCubemap(SDL_GPUCommandBuffer* cmdBuf)
     // Copy face 0 into cubemap layer 0
     {
         SDL_GPUTextureLocation src = {
-            .texture = faceTex, .mip_level = 0, .layer = 0,
-            .x = 0, .y = 0, .z = 0,
+            .texture = faceTex,
+            .mip_level = 0,
+            .layer = 0,
+            .x = 0,
+            .y = 0,
+            .z = 0,
         };
         SDL_GPUTextureLocation dst = {
-            .texture = m_cubemapTexture, .mip_level = 0, .layer = 0,
-            .x = 0, .y = 0, .z = 0,
+            .texture = m_cubemapTexture,
+            .mip_level = 0,
+            .layer = 0,
+            .x = 0,
+            .y = 0,
+            .z = 0,
         };
         SDL_CopyGPUTextureToTexture(copyPass, &src, &dst,
             static_cast<Uint32>(texWidth), static_cast<Uint32>(texHeight), 1, false);
@@ -272,13 +326,20 @@ void Skybox::loadCubemap(SDL_GPUCommandBuffer* cmdBuf)
         }
 
         SDL_GPUTextureLocation src = {
-            .texture = faceTex, .mip_level = 0, .layer = 0,
-            .x = 0, .y = 0, .z = 0,
+            .texture = faceTex,
+            .mip_level = 0,
+            .layer = 0,
+            .x = 0,
+            .y = 0,
+            .z = 0,
         };
         SDL_GPUTextureLocation dst = {
-            .texture = m_cubemapTexture, .mip_level = 0,
+            .texture = m_cubemapTexture,
+            .mip_level = 0,
             .layer = static_cast<Uint32>(i),
-            .x = 0, .y = 0, .z = 0,
+            .x = 0,
+            .y = 0,
+            .z = 0,
         };
         SDL_CopyGPUTextureToTexture(copyPass, &src, &dst,
             static_cast<Uint32>(w), static_cast<Uint32>(h), 1, false);

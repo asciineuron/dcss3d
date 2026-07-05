@@ -33,7 +33,7 @@ static ChoiceButton parseButton(const json& btnJson)
 }
 
 static void parseItemGrid(const json& gridJson, std::vector<ChoiceButton>& outButtons,
-                          int& outWidth, int& outHeight)
+    int& outWidth, int& outHeight)
 {
     outWidth = gridJson.value("width", 0);
     outHeight = gridJson.value("height", 0);

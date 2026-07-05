@@ -14,11 +14,11 @@ struct WindowLayout {
     float sizeX = 0.0f;
     float sizeY = 0.0f;
     bool isCollapsed = false;
-    bool isValid = false;  // false means use default positioning
+    bool isValid = false; // false means use default positioning
 };
 
 // Callback type for when layout is saved/loaded (for getting actual window positions)
-using WindowLayoutCallback = WindowLayout(*)(const char* windowName);
+using WindowLayoutCallback = WindowLayout (*)(const char* windowName);
 
 // Add a window name to be tracked for layout management
 void registerWindowForReset(const char* windowName);
@@ -66,9 +66,9 @@ bool PinButton(const char* windowName);
 // Handles layout management, pin state gating, and calls individual display functions.
 // Visibility is controlled by WindowManager (mode) plus pin state in Normal mode.
 void displayAllWindows(const Player& player, const GameMap& map,
-                       NetworkManager& networkManager, Renderer& renderer,
-                       const MessageLog& messageLog,
-                       const char* layoutFilename);
+    NetworkManager& networkManager, Renderer& renderer,
+    const MessageLog& messageLog,
+    const char* layoutFilename);
 
 void displayPlayer(const Player&);
 

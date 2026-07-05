@@ -1,17 +1,17 @@
-#include "MessageQueue.hpp"
 #include "AudioManager.hpp"
 #include "InputModeTracker.hpp"
 #include "MessageLog.hpp"
+#include "MessageQueue.hpp"
 #include "PlayerState.hpp"
 #include "Renderer.hpp"
 #include "Turn.hpp"
+#include "WindowManager.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
 #include "imgui_impl_sdlgpu3.h"
-#include "imguilayouts.hpp"
-#include "WindowManager.hpp"
-#include <SDL3/SDL.h>
 #include "imgui_internal.h"
+#include "imguilayouts.hpp"
+#include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_scancode.h>
 #include <cstdio>
@@ -36,58 +36,110 @@ static char scancodeToChar(SDL_Scancode sc, SDL_Keymod mod)
 {
     bool shift = (mod & SDL_KMOD_SHIFT);
     switch (sc) {
-    case SDL_SCANCODE_A: return shift ? 'A' : 'a';
-    case SDL_SCANCODE_B: return shift ? 'B' : 'b';
-    case SDL_SCANCODE_C: return shift ? 'C' : 'c';
-    case SDL_SCANCODE_D: return shift ? 'D' : 'd';
-    case SDL_SCANCODE_E: return shift ? 'E' : 'e';
-    case SDL_SCANCODE_F: return shift ? 'F' : 'f';
-    case SDL_SCANCODE_G: return shift ? 'G' : 'g';
-    case SDL_SCANCODE_H: return shift ? 'H' : 'h';
-    case SDL_SCANCODE_I: return shift ? 'I' : 'i';
-    case SDL_SCANCODE_J: return shift ? 'J' : 'j';
-    case SDL_SCANCODE_K: return shift ? 'K' : 'k';
-    case SDL_SCANCODE_L: return shift ? 'L' : 'l';
-    case SDL_SCANCODE_M: return shift ? 'M' : 'm';
-    case SDL_SCANCODE_N: return shift ? 'N' : 'n';
-    case SDL_SCANCODE_O: return shift ? 'O' : 'o';
-    case SDL_SCANCODE_P: return shift ? 'P' : 'p';
-    case SDL_SCANCODE_Q: return shift ? 'Q' : 'q';
-    case SDL_SCANCODE_R: return shift ? 'R' : 'r';
-    case SDL_SCANCODE_S: return shift ? 'S' : 's';
-    case SDL_SCANCODE_T: return shift ? 'T' : 't';
-    case SDL_SCANCODE_U: return shift ? 'U' : 'u';
-    case SDL_SCANCODE_V: return shift ? 'V' : 'v';
-    case SDL_SCANCODE_W: return shift ? 'W' : 'w';
-    case SDL_SCANCODE_X: return shift ? 'X' : 'x';
-    case SDL_SCANCODE_Y: return shift ? 'Y' : 'y';
-    case SDL_SCANCODE_Z: return shift ? 'Z' : 'z';
-    case SDL_SCANCODE_1: return shift ? '!' : '1';
-    case SDL_SCANCODE_2: return shift ? '@' : '2';
-    case SDL_SCANCODE_3: return shift ? '#' : '3';
-    case SDL_SCANCODE_4: return shift ? '$' : '4';
-    case SDL_SCANCODE_5: return shift ? '%' : '5';
-    case SDL_SCANCODE_6: return shift ? '^' : '6';
-    case SDL_SCANCODE_7: return shift ? '&' : '7';
-    case SDL_SCANCODE_8: return shift ? '*' : '8';
-    case SDL_SCANCODE_9: return shift ? '(' : '9';
-    case SDL_SCANCODE_0: return shift ? ')' : '0';
-    case SDL_SCANCODE_SPACE: return ' ';
-    case SDL_SCANCODE_PERIOD: return shift ? '>' : '.';
-    case SDL_SCANCODE_COMMA: return shift ? '<' : ',';
-    case SDL_SCANCODE_SLASH: return shift ? '?' : '/';
-    case SDL_SCANCODE_MINUS: return shift ? '_' : '-';
-    case SDL_SCANCODE_EQUALS: return shift ? '+' : '=';
-    case SDL_SCANCODE_SEMICOLON: return shift ? ':' : ';';
-    case SDL_SCANCODE_APOSTROPHE: return shift ? '"' : '\'';
-    case SDL_SCANCODE_GRAVE: return shift ? '~' : '`';
-    case SDL_SCANCODE_LEFTBRACKET: return shift ? '{' : '[';
-    case SDL_SCANCODE_RIGHTBRACKET: return shift ? '}' : ']';
-    case SDL_SCANCODE_BACKSLASH: return shift ? '|' : '\\';
-    case SDL_SCANCODE_ESCAPE: return 27; // Escape keycode
-    case SDL_SCANCODE_RETURN: return 13;  // Enter keycode
-    case SDL_SCANCODE_TAB: return 9;      // Tab
-    default: return '\0';
+    case SDL_SCANCODE_A:
+        return shift ? 'A' : 'a';
+    case SDL_SCANCODE_B:
+        return shift ? 'B' : 'b';
+    case SDL_SCANCODE_C:
+        return shift ? 'C' : 'c';
+    case SDL_SCANCODE_D:
+        return shift ? 'D' : 'd';
+    case SDL_SCANCODE_E:
+        return shift ? 'E' : 'e';
+    case SDL_SCANCODE_F:
+        return shift ? 'F' : 'f';
+    case SDL_SCANCODE_G:
+        return shift ? 'G' : 'g';
+    case SDL_SCANCODE_H:
+        return shift ? 'H' : 'h';
+    case SDL_SCANCODE_I:
+        return shift ? 'I' : 'i';
+    case SDL_SCANCODE_J:
+        return shift ? 'J' : 'j';
+    case SDL_SCANCODE_K:
+        return shift ? 'K' : 'k';
+    case SDL_SCANCODE_L:
+        return shift ? 'L' : 'l';
+    case SDL_SCANCODE_M:
+        return shift ? 'M' : 'm';
+    case SDL_SCANCODE_N:
+        return shift ? 'N' : 'n';
+    case SDL_SCANCODE_O:
+        return shift ? 'O' : 'o';
+    case SDL_SCANCODE_P:
+        return shift ? 'P' : 'p';
+    case SDL_SCANCODE_Q:
+        return shift ? 'Q' : 'q';
+    case SDL_SCANCODE_R:
+        return shift ? 'R' : 'r';
+    case SDL_SCANCODE_S:
+        return shift ? 'S' : 's';
+    case SDL_SCANCODE_T:
+        return shift ? 'T' : 't';
+    case SDL_SCANCODE_U:
+        return shift ? 'U' : 'u';
+    case SDL_SCANCODE_V:
+        return shift ? 'V' : 'v';
+    case SDL_SCANCODE_W:
+        return shift ? 'W' : 'w';
+    case SDL_SCANCODE_X:
+        return shift ? 'X' : 'x';
+    case SDL_SCANCODE_Y:
+        return shift ? 'Y' : 'y';
+    case SDL_SCANCODE_Z:
+        return shift ? 'Z' : 'z';
+    case SDL_SCANCODE_1:
+        return shift ? '!' : '1';
+    case SDL_SCANCODE_2:
+        return shift ? '@' : '2';
+    case SDL_SCANCODE_3:
+        return shift ? '#' : '3';
+    case SDL_SCANCODE_4:
+        return shift ? '$' : '4';
+    case SDL_SCANCODE_5:
+        return shift ? '%' : '5';
+    case SDL_SCANCODE_6:
+        return shift ? '^' : '6';
+    case SDL_SCANCODE_7:
+        return shift ? '&' : '7';
+    case SDL_SCANCODE_8:
+        return shift ? '*' : '8';
+    case SDL_SCANCODE_9:
+        return shift ? '(' : '9';
+    case SDL_SCANCODE_0:
+        return shift ? ')' : '0';
+    case SDL_SCANCODE_SPACE:
+        return ' ';
+    case SDL_SCANCODE_PERIOD:
+        return shift ? '>' : '.';
+    case SDL_SCANCODE_COMMA:
+        return shift ? '<' : ',';
+    case SDL_SCANCODE_SLASH:
+        return shift ? '?' : '/';
+    case SDL_SCANCODE_MINUS:
+        return shift ? '_' : '-';
+    case SDL_SCANCODE_EQUALS:
+        return shift ? '+' : '=';
+    case SDL_SCANCODE_SEMICOLON:
+        return shift ? ':' : ';';
+    case SDL_SCANCODE_APOSTROPHE:
+        return shift ? '"' : '\'';
+    case SDL_SCANCODE_GRAVE:
+        return shift ? '~' : '`';
+    case SDL_SCANCODE_LEFTBRACKET:
+        return shift ? '{' : '[';
+    case SDL_SCANCODE_RIGHTBRACKET:
+        return shift ? '}' : ']';
+    case SDL_SCANCODE_BACKSLASH:
+        return shift ? '|' : '\\';
+    case SDL_SCANCODE_ESCAPE:
+        return 27; // Escape keycode
+    case SDL_SCANCODE_RETURN:
+        return 13; // Enter keycode
+    case SDL_SCANCODE_TAB:
+        return 9; // Tab
+    default:
+        return '\0';
     }
 }
 
@@ -263,7 +315,16 @@ int main(int argc, char* argv[])
         ImGuiIO& io = ImGui::GetIO();
         // could add e.g. logger
 
-        handlerConfig responseHandlers = { { "map", { player, gameTime, map, audioManager, WindowManager::instance() } }, { "player", { player } }, { "msgs", { messageLog } }, { "game_ended", { audioManager } }, { "game_started", { WindowManager::instance() } }, { "login_success", { WindowManager::instance() } }, { "ui-push", { WindowManager::instance() } }, { "input_mode", { inputModeTracker } } };
+        handlerConfig responseHandlers = {
+            { "map", { player, gameTime, map, audioManager, WindowManager::instance() } },
+            { "player", { player } },
+            { "msgs", { messageLog } },
+            { "game_ended", { audioManager } },
+            { "game_started", { WindowManager::instance() } },
+            { "login_success", { WindowManager::instance() } },
+            { "ui-push", { WindowManager::instance() } },
+            { "input_mode", { inputModeTracker } }
+        };
 
         // Set up window layout callback for save functionality
         setWindowLayoutCallback(getWindowLayoutCallback);
@@ -307,7 +368,7 @@ int main(int argc, char* argv[])
                 }
             }
 
-            renderer.doRender(map, player.camera(), {player.data().pos_x, player.data().pos_y});
+            renderer.doRender(map, player.camera(), { player.data().pos_x, player.data().pos_y });
 
             // Process ALL input FIRST (keyboard + mouse) before updating position.
             // This ensures velocity changes are always detected, preventing infinite loops
@@ -357,8 +418,7 @@ int main(int argc, char* argv[])
                     if (WindowManager::instance().shouldProcessGameInput()
                         && !isGameplay
                         && !(io.WantCaptureMouse || io.WantCaptureKeyboard)
-                        && (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP))
-                    {
+                        && (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)) {
                         SDL_KeyboardEvent& key = event.key;
                         if (key.type == SDL_EVENT_KEY_DOWN) {
                             char c = scancodeToChar(key.scancode, key.mod);
@@ -399,8 +459,8 @@ int main(int argc, char* argv[])
                 if (turn) {
                     if (auto* moveTurn = dynamic_cast<MoveTurn*>(turn.get())) {
                         spdlog::debug("sending movement: dir={} msg={}",
-                                      directionToString[moveTurn->getDirection()],
-                                      turn->asMessage().dump());
+                            directionToString[moveTurn->getDirection()],
+                            turn->asMessage().dump());
                     } else {
                         spdlog::debug("sending turn: {}", turn->asMessage().dump());
                     }

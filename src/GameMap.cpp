@@ -55,20 +55,34 @@ glm::vec4 mapTypeToColor(MapType type)
 {
     using enum MapType;
     switch (type) {
-    case Wall:        return { 0.5f, 0.5f, 0.0f, 1.0f };
-    case Floor:       return { 0.0f, 0.5f, 0.0f, 1.0f };
-    case Door:        return { 0.3f, 0.15f, 0.0f, 1.0f };  // dark brown
-    case OpenDoor:     return { 0.3f, 0.15f, 0.0f, 1.0f };
-    case Item:        return { 0.8f, 0.8f, 0.3f, 1.0f };  // bright yellow
-    case WallMemory:  return { 0.3f, 0.3f, 0.0f, 1.0f };
-    case FloorMemory: return { 0.0f, 0.25f, 0.0f, 1.0f };
-    case Unexplored:  return { 0.5f, 0.5f, 0.5f, 1.0f };
-    case Water:       return { 0.0f, 0.3f, 0.8f, 1.0f };
-    case Lava:        return { 0.8f, 0.3f, 0.0f, 1.0f };
-    case StairUp:     return { 0.9f, 0.9f, 0.95f, 1.0f }; // bright white with blue tint
-    case StairDown:   return { 1.0f, 0.4f, 0.6f, 1.0f };  // pink
-    case StairBranch: return { 0.8f, 0.2f, 0.9f, 1.0f };  // bright magenta
-    case Other:       return { 0.0f, 0.5f, 0.5f, 1.0f };
+    case Wall:
+        return { 0.5f, 0.5f, 0.0f, 1.0f };
+    case Floor:
+        return { 0.0f, 0.5f, 0.0f, 1.0f };
+    case Door:
+        return { 0.3f, 0.15f, 0.0f, 1.0f }; // dark brown
+    case OpenDoor:
+        return { 0.3f, 0.15f, 0.0f, 1.0f };
+    case Item:
+        return { 0.8f, 0.8f, 0.3f, 1.0f }; // bright yellow
+    case WallMemory:
+        return { 0.3f, 0.3f, 0.0f, 1.0f };
+    case FloorMemory:
+        return { 0.0f, 0.25f, 0.0f, 1.0f };
+    case Unexplored:
+        return { 0.5f, 0.5f, 0.5f, 1.0f };
+    case Water:
+        return { 0.0f, 0.3f, 0.8f, 1.0f };
+    case Lava:
+        return { 0.8f, 0.3f, 0.0f, 1.0f };
+    case StairUp:
+        return { 0.9f, 0.9f, 0.95f, 1.0f }; // bright white with blue tint
+    case StairDown:
+        return { 1.0f, 0.4f, 0.6f, 1.0f }; // pink
+    case StairBranch:
+        return { 0.8f, 0.2f, 0.9f, 1.0f }; // bright magenta
+    case Other:
+        return { 0.0f, 0.5f, 0.5f, 1.0f };
     }
     return { 0.4f, 0.1f, 0.6f, 0.7f }; // fallback
 }
@@ -83,12 +97,10 @@ bool GameMap::wouldCollide(const glm::vec2& testLoc) const
     int cellY = static_cast<int>(std::floor(testLoc.y + 1.0f));
 
     // Check tile at that cell
-    auto tileIt = m_map.find({cellX, cellY});
+    auto tileIt = m_map.find({ cellX, cellY });
     if (tileIt != m_map.end()) {
         MapType type = tileIt->second.type();
-        bool isBlocked =
-            type == MapType::Wall || type == MapType::WallMemory ||
-            type == MapType::Door || type == MapType::Other;
+        bool isBlocked = type == MapType::Wall || type == MapType::WallMemory || type == MapType::Door || type == MapType::Other;
         if (isBlocked) {
             spdlog::debug("collision at ({}, {}): type={}", cellX, cellY, static_cast<int>(type));
             return true;
@@ -96,7 +108,7 @@ bool GameMap::wouldCollide(const glm::vec2& testLoc) const
     }
 
     // Check for monster at that cell
-    if (m_monsters.contains({cellX, cellY})) {
+    if (m_monsters.contains({ cellX, cellY })) {
         spdlog::debug("collision at ({}, {}): monster present", cellX, cellY);
         return true;
     }
@@ -119,10 +131,14 @@ void GameMap::shift(Direction moveDir)
     int dx = 0;
     int dy = 0;
 
-    if (moveDir & North) dy += 1;
-    if (moveDir & South) dy -= 1;
-    if (moveDir & East)  dx -= 1;
-    if (moveDir & West)  dx += 1;
+    if (moveDir & North)
+        dy += 1;
+    if (moveDir & South)
+        dy -= 1;
+    if (moveDir & East)
+        dx -= 1;
+    if (moveDir & West)
+        dx += 1;
 
     if (dx == 0 && dy == 0)
         return;
@@ -130,21 +146,21 @@ void GameMap::shift(Direction moveDir)
     // Shift tile map
     MapData nextMap;
     for (const auto& [pos, tile] : m_map) {
-        nextMap[{pos.x + dx, pos.y + dy}] = tile;
+        nextMap[{ pos.x + dx, pos.y + dy }] = tile;
     }
     m_map = std::move(nextMap);
 
     // Shift monster positions (monster table is position-independent, no change needed)
     MonsterPosMap nextMonsters;
     for (const auto& [pos, id] : m_monsters) {
-        nextMonsters[{pos.x + dx, pos.y + dy}] = id;
+        nextMonsters[{ pos.x + dx, pos.y + dy }] = id;
     }
     m_monsters = std::move(nextMonsters);
 
     // Shift object positions
     ObjectMap nextObjects;
     for (const auto& [pos, info] : m_objects) {
-        nextObjects[{pos.x + dx, pos.y + dy}] = info;
+        nextObjects[{ pos.x + dx, pos.y + dy }] = info;
     }
     m_objects = std::move(nextObjects);
 
@@ -163,33 +179,60 @@ MapType mapTypeFromMF(int mf)
     // TODO: fix case  6: return Item; case 15: return Other; to handle correctly
     using enum MapType;
     switch (mf) {
-    case  0: return Unexplored;   // MF_UNSEEN
-    case  1: return Floor;         // MF_FLOOR
-    case  2: return Wall;          // MF_WALL
-    case  3: return FloorMemory;   // MF_MAP_FLOOR
-    case  4: return WallMemory;    // MF_MAP_WALL
-    case  5: return Door;          // MF_DOOR
-    case  6: return Floor;         // MF_ITEM — 3D model on top
-    case  7: return Floor;         // MF_MONS_FRIENDLY
-    case  8: return Floor;         // MF_MONS_PEACEFUL
-    case  9: return Floor;         // MF_MONS_NEUTRAL
-    case 10: return Floor;         // MF_MONS_HOSTILE
-    case 11: return Floor;         // MF_MONS_NO_EXP
-    case 12: return StairUp;       // MF_STAIR_UP
-    case 13: return StairDown;     // MF_STAIR_DOWN
-    case 14: return StairBranch;   // MF_STAIR_BRANCH
-    case 15: return Floor;         // MF_FEATURE — 3D model on top
-    case 16: return Water;         // MF_WATER
-    case 17: return Lava;          // MF_LAVA
-    case 18: return Other;         // MF_TRAP
-    case 19: return Other;         // MF_EXCL_ROOT
-    case 20: return Other;         // MF_EXCL
-    case 21: return Floor;         // MF_PLAYER
-    case 22: return Water;         // MF_DEEP_WATER
-    case 23: return Other;         // MF_PORTAL
-    case 24: return Other;         // MF_TRANSPORTER
-    case 25: return Other;         // MF_TRANSPORTER_LANDING
-    case 26: return Unexplored;    // MF_EXPLORE_HORIZON
+    case 0:
+        return Unexplored; // MF_UNSEEN
+    case 1:
+        return Floor; // MF_FLOOR
+    case 2:
+        return Wall; // MF_WALL
+    case 3:
+        return FloorMemory; // MF_MAP_FLOOR
+    case 4:
+        return WallMemory; // MF_MAP_WALL
+    case 5:
+        return Door; // MF_DOOR
+    case 6:
+        return Floor; // MF_ITEM — 3D model on top
+    case 7:
+        return Floor; // MF_MONS_FRIENDLY
+    case 8:
+        return Floor; // MF_MONS_PEACEFUL
+    case 9:
+        return Floor; // MF_MONS_NEUTRAL
+    case 10:
+        return Floor; // MF_MONS_HOSTILE
+    case 11:
+        return Floor; // MF_MONS_NO_EXP
+    case 12:
+        return StairUp; // MF_STAIR_UP
+    case 13:
+        return StairDown; // MF_STAIR_DOWN
+    case 14:
+        return StairBranch; // MF_STAIR_BRANCH
+    case 15:
+        return Floor; // MF_FEATURE — 3D model on top
+    case 16:
+        return Water; // MF_WATER
+    case 17:
+        return Lava; // MF_LAVA
+    case 18:
+        return Other; // MF_TRAP
+    case 19:
+        return Other; // MF_EXCL_ROOT
+    case 20:
+        return Other; // MF_EXCL
+    case 21:
+        return Floor; // MF_PLAYER
+    case 22:
+        return Water; // MF_DEEP_WATER
+    case 23:
+        return Other; // MF_PORTAL
+    case 24:
+        return Other; // MF_TRANSPORTER
+    case 25:
+        return Other; // MF_TRANSPORTER_LANDING
+    case 26:
+        return Unexplored; // MF_EXPLORE_HORIZON
     default:
         std::cerr << "Warning, received unknown map type: " << mf << std::endl;
         return Other;
@@ -245,7 +288,8 @@ std::string GameMap::asciiView() const
 
 std::string GameMap::dumpString() const
 {
-    if (m_map.empty()) return "(empty)\n";
+    if (m_map.empty())
+        return "(empty)\n";
 
     Bounds b = m_bounds;
     int w = b.x_max - b.x_min + 1;
@@ -258,23 +302,53 @@ std::string GameMap::dumpString() const
         bool vis = tile.isVisible();
         char c = '?';
         switch (tile.type()) {
-        case MapType::Wall:        c = vis ? '#' : '='; break;
-        case MapType::Floor:       c = vis ? '.' : ':'; break;
-        case MapType::Door:        c = '+'; break;
-        case MapType::OpenDoor:     c = '\''; break;
-        case MapType::Item:        c = vis ? '!' : 'i'; break;
-        case MapType::WallMemory:  c = '='; break;
-        case MapType::FloorMemory: c = ':'; break;
-        case MapType::Unexplored:  c = 'U'; break;
-        case MapType::Water:       c = vis ? '~' : 'w'; break;
-        case MapType::Lava:        c = vis ? 'L' : 'l'; break;
-        case MapType::StairUp:     c = '<'; break;
-        case MapType::StairDown:   c = '>'; break;
-        case MapType::StairBranch: c = 'B'; break;
-        case MapType::Other:       c = vis ? 'O' : 'o'; break;
+        case MapType::Wall:
+            c = vis ? '#' : '=';
+            break;
+        case MapType::Floor:
+            c = vis ? '.' : ':';
+            break;
+        case MapType::Door:
+            c = '+';
+            break;
+        case MapType::OpenDoor:
+            c = '\'';
+            break;
+        case MapType::Item:
+            c = vis ? '!' : 'i';
+            break;
+        case MapType::WallMemory:
+            c = '=';
+            break;
+        case MapType::FloorMemory:
+            c = ':';
+            break;
+        case MapType::Unexplored:
+            c = 'U';
+            break;
+        case MapType::Water:
+            c = vis ? '~' : 'w';
+            break;
+        case MapType::Lava:
+            c = vis ? 'L' : 'l';
+            break;
+        case MapType::StairUp:
+            c = '<';
+            break;
+        case MapType::StairDown:
+            c = '>';
+            break;
+        case MapType::StairBranch:
+            c = 'B';
+            break;
+        case MapType::Other:
+            c = vis ? 'O' : 'o';
+            break;
         }
-        if (m_monsters.contains(pos)) c = 'M';
-        else if (m_objects.contains(pos)) c = 'O';
+        if (m_monsters.contains(pos))
+            c = 'M';
+        else if (m_objects.contains(pos))
+            c = 'O';
         grid[gy * w + gx] = c;
     }
 
@@ -322,10 +396,14 @@ void GameMap::updateBounds()
     int x_min = 0, x_max = 0, y_min = 0, y_max = 0;
 
     for (const auto& loc : m_map) {
-        if (loc.first.x < x_min) x_min = loc.first.x;
-        if (loc.first.x > x_max) x_max = loc.first.x;
-        if (loc.first.y < y_min) y_min = loc.first.y;
-        if (loc.first.y > y_max) y_max = loc.first.y;
+        if (loc.first.x < x_min)
+            x_min = loc.first.x;
+        if (loc.first.x > x_max)
+            x_max = loc.first.x;
+        if (loc.first.y < y_min)
+            y_min = loc.first.y;
+        if (loc.first.y > y_max)
+            y_max = loc.first.y;
     }
     m_bounds = { x_min, x_max, y_min, y_max };
 }
@@ -386,7 +464,7 @@ void GameMap::cleanMonsterTable()
     }
 
     // Remove any table entry not present in the set
-    for (auto it = m_monsterTable.begin(); it != m_monsterTable.end(); ) {
+    for (auto it = m_monsterTable.begin(); it != m_monsterTable.end();) {
         if (!referencedIds.contains(it->first)) {
             spdlog::debug("Cleaning unreferenced monster id={}", it->first);
             it = m_monsterTable.erase(it);
@@ -541,7 +619,7 @@ void GameMap::updateMap(const json& message)
 
         // Remove any old position that references the same monster ID
         // (a monster can only be at one position at a time)
-        for (auto it = m_monsters.begin(); it != m_monsters.end(); ) {
+        for (auto it = m_monsters.begin(); it != m_monsters.end();) {
             if (it->second == monId && !(it->first == pos)) {
                 it = m_monsters.erase(it);
             } else {

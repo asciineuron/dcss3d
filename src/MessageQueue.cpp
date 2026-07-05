@@ -250,14 +250,13 @@ void NetworkManager::pollLoop()
             m_responseBacklog.insert(m_responseBacklog.end(),
                 std::make_move_iterator(messages.begin()),
                 std::make_move_iterator(messages.end()));
-
         }
     }
 }
 
 std::vector<json> NetworkManager::getNewMessages()
 {
-    std::vector<json> poppedMessages {};
+    std::vector<json> poppedMessages { };
     {
         std::scoped_lock lock(messageMutex);
         m_responseBacklog.swap(poppedMessages);
