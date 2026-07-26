@@ -2,6 +2,7 @@
 #include "GameMap.hpp"
 #include "MonsterModelMap.hpp"
 #include "ObjectModelMap.hpp"
+#include "SpriteManager.hpp"
 #include "WindowManager.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -114,7 +115,8 @@ Renderer::Renderer()
 }
 // TODO stuck acquiring swapchain texture...
 
-void Renderer::doRender(GameMap& map, const Camera& camera, Pos2<int> playerPos)
+void Renderer::doRender(GameMap& map, const Camera& camera, Pos2<int> playerPos,
+                         SpriteManager* spriteManager)
 {
     // do all rendering-related updates that don't require a command buffer pass first
     const bool shouldRenderUI = WindowManager::instance().shouldRenderUI() || anyWindowsPinned();
@@ -153,6 +155,11 @@ void Renderer::doRender(GameMap& map, const Camera& camera, Pos2<int> playerPos)
             pushMonsterToGPU(map, commandBuffer);
             pushObjectsToGPU(map, commandBuffer);
             map.setDidRender(true);
+        }
+
+        // Upload sprite instance data (copy pass, must happen before render passes)
+        if (spriteManager) {
+            spriteManager->uploadGpuData(commandBuffer);
         }
 
         if (shouldRenderUI)
@@ -223,7 +230,20 @@ void Renderer::doRender(GameMap& map, const Camera& camera, Pos2<int> playerPos)
 
         SDL_EndGPURenderPass(scenePass);
 
-        // Pass 2: ImGui — render on top, no depth buffer (which otherwise covers the window contents)
+        // Pass 2: Sprites — screen-space quads, no depth test, alpha blended
+        if (spriteManager) {
+            SDL_GPUColorTargetInfo spriteTargetInfo = {
+                .texture = swapchainTexture,
+                .load_op = SDL_GPU_LOADOP_LOAD,
+                .store_op = SDL_GPU_STOREOP_STORE,
+            };
+            SDL_GPURenderPass* spritePass = SDL_BeginGPURenderPass(
+                commandBuffer, &spriteTargetInfo, 1, NULL);
+            spriteManager->draw(spritePass);
+            SDL_EndGPURenderPass(spritePass);
+        }
+
+        // Pass 3: ImGui — render on top, no depth buffer (which otherwise covers the window contents)
         if (shouldRenderUI) {
             SDL_GPUColorTargetInfo uiTargetInfo = {
                 .texture = swapchainTexture,

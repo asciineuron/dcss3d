@@ -4,6 +4,7 @@
 #include "MessageQueue.hpp"
 #include "PlayerState.hpp"
 #include "Renderer.hpp"
+#include "SpriteManager.hpp"
 #include "Turn.hpp"
 #include "WindowManager.hpp"
 #include "imgui.h"
@@ -14,6 +15,8 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_scancode.h>
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -22,6 +25,7 @@
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -247,6 +251,46 @@ std::unique_ptr<Turn> processMouseInput(Player& player)
     return nullptr;
 }
 
+// Map a weapon name (from inventory) to a sprite animation clip name.
+// Returns "weapon_default_idle" for unknown weapons or when unarmed.
+static std::string weaponToClipName(const PlayerData& data, bool swing)
+{
+    if (data.weapon_index == -1) {
+        // Unarmed
+        return swing ? "weapon_default_swing" : "weapon_default_idle";
+    }
+
+    auto it = data.inv.find(data.weapon_index);
+    if (it == data.inv.end()) {
+        return swing ? "weapon_default_swing" : "weapon_default_idle";
+    }
+
+    const std::string& name = it->second.name;
+
+    // Map known weapon names to animation prefixes.
+    // Expand this table as sprite assets are created.
+    static const std::unordered_map<std::string, std::string> prefixMap = {
+        {"dagger", "weapon_default"},
+        {"short sword", "weapon_default"},
+        {"long sword", "weapon_default"},
+        {"hand axe", "weapon_default"},
+        {"mace", "weapon_default"},
+        {"club", "weapon_default"},
+        {"spear", "weapon_default"},
+    };
+
+    std::string lower = name;
+    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+
+    for (const auto& [key, prefix] : prefixMap) {
+        if (lower.find(key) != std::string::npos) {
+            return prefix + (swing ? "_swing" : "_idle");
+        }
+    }
+
+    return swing ? "weapon_default_swing" : "weapon_default_idle";
+}
+
 constexpr uint32_t FRAMERATE_MS = (1.0f / 60.0f) * 1000.0f;
 
 pid_t runRelayServer()
@@ -311,6 +355,12 @@ int main(int argc, char* argv[])
         Renderer renderer; // imgui + SDL setup too
         NetworkManager networkManager(std::format("{}dcss3d.sock", SDL_GetBasePath()));
         AudioManager audioManager;
+        SpriteManager spriteManager(renderer.gpu_device(), renderer.window());
+
+        // Load sprite atlas (texture is loaded asynchronously by loadAtlas).
+        spriteManager.loadAtlas(
+            std::format("{}resources/weapons_atlas.json", SDL_GetBasePath()));
+
         player.setAudioManager(&audioManager);
         ImGuiIO& io = ImGui::GetIO();
         // could add e.g. logger
@@ -330,6 +380,18 @@ int main(int argc, char* argv[])
         setWindowLayoutCallback(getWindowLayoutCallback);
 
         bool isDone = false;
+
+        // --- Sprite/weapon state ---
+        SpriteHandle weaponHandle = INVALID_SPRITE;
+        std::string currentWeaponName; // tracks weapon_index for change detection
+        bool weaponSwinging = false;
+
+        // --- Effect tracking ---
+        std::vector<SpriteHandle> activeEffects;
+        int lastPlayerXl = 0;
+
+        uint64_t lastSpriteTick = SDL_GetTicks();
+
         while (!isDone && !WindowManager::instance().isQuitConfirmed()) {
             std::vector<json> responses = networkManager.getNewMessages();
             if (!responses.empty()) {
@@ -368,7 +430,8 @@ int main(int argc, char* argv[])
                 }
             }
 
-            renderer.doRender(map, player.camera(), { player.data().pos_x, player.data().pos_y });
+            renderer.doRender(map, player.camera(), { player.data().pos_x, player.data().pos_y },
+                              &spriteManager);
 
             // Process ALL input FIRST (keyboard + mouse) before updating position.
             // This ensures velocity changes are always detected, preventing infinite loops
@@ -444,6 +507,18 @@ int main(int argc, char* argv[])
                     spdlog::debug("generated turn: {}", turn->asMessage().dump());
                     turn->playSound(audioManager);
                     networkManager.sendMessage(turn->asMessage());
+
+                    // Trigger weapon swing animation
+                    if (dynamic_cast<AttackTurn*>(turn.get())
+                        && weaponHandle != INVALID_SPRITE
+                        && !weaponSwinging) {
+                        std::string swingClip = weaponToClipName(
+                            player.data(), true);
+                        spriteManager.setAnimation(weaponHandle, swingClip);
+                        weaponSwinging = true;
+                        spdlog::debug("Swing animation '{}' triggered",
+                            swingClip);
+                    }
                 }
             }
 
@@ -467,6 +542,85 @@ int main(int argc, char* argv[])
                     turn->playSound(audioManager);
                     networkManager.sendMessage(turn->asMessage());
                 }
+            }
+
+            // --- Weapon sprite: create when logged in, destroy on logout ---
+            if (WindowManager::instance().isLoggedIn()
+                && weaponHandle == INVALID_SPRITE) {
+                SpriteTransform t;
+                t.posX = 0.0f;
+                t.posY = -0.5f;
+                t.scaleX = 0.4f;
+                t.scaleY = 0.4f;
+                std::string clipName = weaponToClipName(player.data(), false);
+                weaponHandle = spriteManager.play(
+                    clipName, SpriteSpace::Screen, t);
+                currentWeaponName = clipName;
+                spdlog::info("Weapon sprite '{}' created, handle={}",
+                    clipName, weaponHandle);
+            }
+            if (!WindowManager::instance().isLoggedIn()
+                && weaponHandle != INVALID_SPRITE) {
+                spriteManager.stop(weaponHandle);
+                weaponHandle = INVALID_SPRITE;
+                weaponSwinging = false;
+                spdlog::info("Weapon sprite destroyed");
+            }
+
+            // --- Detect weapon changes ---
+            if (weaponHandle != INVALID_SPRITE && !weaponSwinging) {
+                std::string idleClip = weaponToClipName(player.data(), false);
+                if (idleClip != currentWeaponName) {
+                    spriteManager.setAnimation(weaponHandle, idleClip);
+                    currentWeaponName = idleClip;
+                    spdlog::info("Weapon changed to '{}'", idleClip);
+                }
+            }
+
+            // --- After a swing completes, return to idle ---
+            if (weaponSwinging && weaponHandle != INVALID_SPRITE
+                && spriteManager.isComplete(weaponHandle)) {
+                std::string idleClip = weaponToClipName(player.data(), false);
+                spriteManager.setAnimation(weaponHandle, idleClip);
+                currentWeaponName = idleClip;
+                weaponSwinging = false;
+                spdlog::debug("Swing complete, back to '{}'", idleClip);
+            }
+
+            // --- Clean up completed effects ---
+            for (auto it = activeEffects.begin(); it != activeEffects.end();) {
+                if (spriteManager.isComplete(*it)) {
+                    spriteManager.stop(*it);
+                    it = activeEffects.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+
+            // --- Detect level-up and play effect ---
+            if (player.data().xl > lastPlayerXl && lastPlayerXl > 0) {
+                SpriteTransform et;
+                et.posX = 0.0f;
+                et.posY = 0.0f;
+                et.scaleX = 0.6f;
+                et.scaleY = 0.6f;
+                SpriteHandle effectHandle = spriteManager.play(
+                    "level_up", SpriteSpace::Screen, et);
+                if (effectHandle != INVALID_SPRITE) {
+                    activeEffects.push_back(effectHandle);
+                    spdlog::info("Level-up effect triggered (XL {} -> {})",
+                        lastPlayerXl, player.data().xl);
+                }
+            }
+            lastPlayerXl = player.data().xl;
+
+            // --- Sprite system update (use own frame timer, not gameTime) ---
+            {
+                uint64_t now = SDL_GetTicks();
+                float spriteDt = (now - lastSpriteTick) / 1000.0f;
+                lastSpriteTick = now;
+                if (spriteDt > 0.1f) spriteDt = 0.1f;
+                spriteManager.update(spriteDt);
             }
 
             // wait for 60fps

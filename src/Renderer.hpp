@@ -169,20 +169,7 @@ private:
 
 std::ostream& operator<<(std::ostream& os, const Model& model);
 
-// for SpriteModel, low level wrap SDL texture image and access subparts of spritesheet
-class Texture {
-};
-
-// TODO instead of sprite have 3d animated models? Totally different routes, assimp with bones vs spritesheet
-class SpriteModel {
-public:
-    SpriteModel(std::string filename);
-    ~SpriteModel();
-    virtual void release();
-    virtual void draw(SDL_GPURenderPass*); // TODO: does this need gpu if it's 2D sprite?
-    void playAnimation(); // TODO how to implement this?
-private:
-};
+class SpriteManager;
 
 class Renderer {
 public:
@@ -192,7 +179,8 @@ public:
     Renderer(Renderer&) = delete;
     Renderer(Renderer&&) = delete;
 
-    void doRender(GameMap&, const Camera&, Pos2<int> playerPos);
+    void doRender(GameMap&, const Camera&, Pos2<int> playerPos,
+                  class SpriteManager* spriteManager = nullptr);
 
     const uint64_t renderCount() const;
 
@@ -221,9 +209,6 @@ private:
     // and an object share the same OBJ file (e.g. both using icosphere.obj).
     std::unordered_map<std::string, std::unique_ptr<MonsterBufferedModel>> m_objectModelCache;
     MonsterBufferedModel* getOrCreateObjectModel(const std::string& modelFile);
-
-    std::unordered_map<std::string, std::unique_ptr<SpriteModel>> m_spriteModelCache;
-    SpriteModel* getOrCreateSpriteModel(const std::string& modelFile);
 
     SDL_WindowID m_windowID { };
     int m_windowWidth { };

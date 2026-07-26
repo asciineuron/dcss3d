@@ -1,0 +1,32 @@
+{
+  "texture": "resources/weapons_atlas.png",
+  "animations": {
+    "level_up": {
+      "loop": false,
+      "frames": [
+        {"u": 0.75, "v": 0.5, "w": 0.25, "h": 0.5, "duration_ms": 80},
+        {"u": 0.75, "v": 0.5, "w": 0.25, "h": 0.5, "duration_ms": 80},
+        {"u": 0.5, "v": 0.0, "w": 0.5, "h": 0.5, "duration_ms": 100},
+        {"u": 0.0, "v": 0.0, "w": 0.5, "h": 0.5, "duration_ms": 120},
+        {"u": 0.25, "v": 0.5, "w": 0.25, "h": 0.5, "duration_ms": 80},
+        {"u": 0.75, "v": 0.5, "w": 0.25, "h": 0.5, "duration_ms": 80}
+      ]
+    },
+    "weapon_default_idle": {
+      "loop": true,
+      "frames": [
+        {"u": 0.0, "v": 0.0, "w": 0.5, "h": 0.5, "duration_ms": 500},
+        {"u": 0.5, "v": 0.0, "w": 0.5, "h": 0.5, "duration_ms": 500}
+      ]
+    },
+    "weapon_default_swing": {
+      "loop": false,
+      "frames": [
+        {"u": 0.0, "v": 0.5, "w": 0.25, "h": 0.5, "duration_ms": 60},
+        {"u": 0.25, "v": 0.5, "w": 0.25, "h": 0.5, "duration_ms": 50},
+        {"u": 0.5, "v": 0.5, "w": 0.25, "h": 0.5, "duration_ms": 50},
+        {"u": 0.75, "v": 0.5, "w": 0.25, "h": 0.5, "duration_ms": 60}
+      ]
+    }
+  }
+}

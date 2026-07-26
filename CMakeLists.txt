@@ -50,6 +50,9 @@ target_sources(dcss3d_obj PRIVATE
 	src/MessageLog.hpp
 	src/MessageLog.cpp
 
+	src/SpriteManager.hpp
+	src/SpriteManager.cpp
+
 	src/debug.hpp
 	src/debug.cpp
 
@@ -147,6 +150,8 @@ set(SLANG_SHADERS
     ${PROJECT_SOURCE_DIR}/shaders/solid.slang
     ${PROJECT_SOURCE_DIR}/shaders/skybox_vertex.slang
     ${PROJECT_SOURCE_DIR}/shaders/skybox_fragment.slang
+    ${PROJECT_SOURCE_DIR}/shaders/sprite.vert.slang
+    ${PROJECT_SOURCE_DIR}/shaders/sprite.frag.slang
 )
 
 set(SHADER_TARGETS "")
@@ -235,12 +240,15 @@ target_sources(dcss3d_tests PRIVATE
     tests/test_audio_manager.cpp
     tests/test_window_manager.cpp
     tests/test_character_select.cpp
+    tests/test_sprite_manager.cpp
     src/InputModeTracker.cpp
     src/MessageLog.cpp
     src/WindowManager.cpp
     src/CharacterSelect.cpp
     src/GameMap.cpp
     src/Turn.cpp
+    src/SpriteManager.cpp
+    src/ShaderUtil.cpp
     src/MessageQueue.cpp
     src/PlayerState.cpp
     src/AudioManager.cpp
@@ -250,6 +258,7 @@ target_sources(dcss3d_tests PRIVATE
 target_link_libraries(dcss3d_tests PRIVATE
     Catch2::Catch2WithMain
     SDL3::SDL3
+    SDL3_image::SDL3_image
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     glm::glm

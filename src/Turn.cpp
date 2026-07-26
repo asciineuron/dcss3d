@@ -120,11 +120,6 @@ AttackTurn::AttackTurn(Direction direction)
 {
 }
 
-void AttackTurn::triggerAnimation(SpriteManager& sm) const
-{
-    sm.doSwing();
-}
-
 json AttackTurn::asMessage() const
 {
     // Map compass direction to the corresponding vim key for Ctrl-attack.
