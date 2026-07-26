@@ -16,7 +16,7 @@ build_xcode/
 *.sublime-workspace
 
 # ZED editor
-.zed/.cache/
+.zed/
 
 # Compilation database
 compile_commands.json
@@ -48,3 +48,7 @@ dcss3d
 *.spv
 *.hlsl
 *.msl
+
+.clangd
+
+SDL_gpu_examples
