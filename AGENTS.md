@@ -9,7 +9,8 @@ dcss3d is envisioned to be a 3d renderer webview of a server session [Dungeon Cr
 - Before making any changes, draft out an implementation plan including the what and why of the problem, and your prosed design architecture. Reach out to me to discuss your thought process step by step before beginning implementation. 
 - Record this in `design_docs/` and update it as our conversation progresses.
 - Consider multiple possible approaches and weigh their tradeoffs.
-- Use mermaid diagrams to visually explain your design.
+- Include mermaid diagrams to visually explain your design.
+- Use red/green TDD to structure your implementation plan.
 
 ## Coding Guidelines
 
