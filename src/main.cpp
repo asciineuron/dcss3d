@@ -1,4 +1,5 @@
 #include "AudioManager.hpp"
+#include "DescriptionManager.hpp"
 #include "InputModeTracker.hpp"
 #include "MessageLog.hpp"
 #include "MessageQueue.hpp"
@@ -361,6 +362,8 @@ int main(int argc, char* argv[])
         spriteManager.loadAtlas(
             std::format("{}resources/weapons_atlas.json", SDL_GetBasePath()));
 
+        DescriptionManager descriptionManager;
+
         player.setAudioManager(&audioManager);
         ImGuiIO& io = ImGui::GetIO();
         // could add e.g. logger
@@ -372,7 +375,8 @@ int main(int argc, char* argv[])
             { "game_ended", { audioManager } },
             { "game_started", { WindowManager::instance() } },
             { "login_success", { WindowManager::instance() } },
-            { "ui-push", { WindowManager::instance() } },
+            { "ui-push", { WindowManager::instance(), descriptionManager } },
+            { "ui-pop", { descriptionManager } },
             { "input_mode", { inputModeTracker } }
         };
 
@@ -389,6 +393,7 @@ int main(int argc, char* argv[])
         // --- Effect tracking ---
         std::vector<SpriteHandle> activeEffects;
         int lastPlayerXl = 0;
+        bool quaffDescribePending = false; // '?' pressed, next letter describes
 
         uint64_t lastSpriteTick = SDL_GetTicks();
 
@@ -403,7 +408,8 @@ int main(int argc, char* argv[])
             ImGui::NewFrame();
 
             // Display all ImGui windows — layout management, pin gating, and content
-            displayAllWindows(player, map, networkManager, renderer, messageLog, LAYOUT_FILENAME);
+            displayAllWindows(player, map, networkManager, renderer, messageLog,
+                              LAYOUT_FILENAME, &descriptionManager);
 
             // In Normal mode, pinned windows are read-only overlays.
             // Clear any ImGui capture state so game input is not blocked —
@@ -441,21 +447,114 @@ int main(int argc, char* argv[])
             {
                 SDL_Event event;
                 while (SDL_PollEvent(&event)) {
-                    // When UI is not active (Normal mode), skip ALL events to ImGui.
-                    // Pinned windows are read-only overlays — no hover, no clicks, no keyboard.
-                    if (WindowManager::instance().shouldRenderUI()) {
-                        ImGui_ImplSDL3_ProcessEvent(&event);
+                    // ── ESC handling (ordered by priority) ──
+
+                    // 1. Description showing → dismiss it, keep everything else
+                    if (event.type == SDL_EVENT_KEY_UP
+                        && event.key.scancode == SDL_SCANCODE_ESCAPE
+                        && descriptionManager.hasDescription()) {
+                        descriptionManager.dismiss();
+                        continue;
                     }
 
-                    // Mode-toggle keys (Escape, E) — always handled, even when ImGui captures input
+                    // 2. Normal mode, logged in → send ESC to server (matching
+                    //    the JS client: server responds with ui-pop or mode change)
+                    if (event.type == SDL_EVENT_KEY_UP
+                        && event.key.scancode == SDL_SCANCODE_ESCAPE
+                        && !descriptionManager.hasDescription()
+                        && WindowManager::instance().getMode() == WindowManager::Mode::Normal
+                        && WindowManager::instance().isLoggedIn()) {
+                        json escMsg = { { "msg", "key" }, { "keycode", 27 } };
+                        networkManager.sendMessage(escMsg);
+                        continue;
+                    }
+
+                    // 3. Other modes (QuitConfirm, QuaffMenu, Equipment, Overlay)
+                    //    — handled by WindowManager.
+                    //    In Normal mode, handleKeyEvent returns false for ESC
+                    //    (already handled above), but still handles E, F1, etc.
                     if (event.type == SDL_EVENT_KEY_UP
                         && WindowManager::instance().handleKeyEvent(event.key.scancode, renderer.window())) {
                         continue;
                     }
 
-                    // Quit key (Q) — always handled regardless of mode
-                    if (event.type == SDL_EVENT_KEY_UP && event.key.scancode == SDL_SCANCODE_Q) {
+                    // Quit key (Shift+Q) — always handled regardless of mode
+                    if (event.type == SDL_EVENT_KEY_UP
+                        && event.key.scancode == SDL_SCANCODE_Q
+                        && (event.key.mod & SDL_KMOD_SHIFT)) {
                         WindowManager::instance().enterQuitConfirm(renderer.window());
+                        continue;
+                    }
+
+                    // Quaff key (q) — open potion menu when in Normal mode.
+                    // Don't check isGameplayMode(): after a quaff the server
+                    // may send input_mode changes (e.g. MORE for --more--)
+                    // that would block subsequent quaffs.
+                    if (event.type == SDL_EVENT_KEY_UP
+                        && event.key.scancode == SDL_SCANCODE_Q
+                        && !(event.key.mod & SDL_KMOD_SHIFT)
+                        && WindowManager::instance().getMode() == WindowManager::Mode::Normal
+                        && WindowManager::instance().isLoggedIn()) {
+                        WindowManager::instance().enterQuaffMenu(renderer.window());
+                        quaffDescribePending = false;
+                        continue;
+                    }
+
+                    // Quaff letter selection / describe — handle in event loop
+                    // to avoid one-frame IsKeyPressed delay.
+                    if (event.type == SDL_EVENT_KEY_UP
+                        && WindowManager::instance().getMode() == WindowManager::Mode::QuaffMenu) {
+                        char c = scancodeToChar(event.key.scancode, event.key.mod);
+
+                        // '?' key — enter describe mode (next letter describes)
+                        if (c == '?') {
+                            quaffDescribePending = true;
+                            continue;
+                        }
+
+                        if (c >= 'a' && c <= 'z') {
+                            int slot = c - 'a';
+                            auto it = player.data().inv.find(slot);
+                            if (it != player.data().inv.end()
+                                && it->second.base_type == kBaseTypePotion) {
+
+                                if (quaffDescribePending) {
+                                    // Describe the potion
+                                    quaffDescribePending = false;
+                                    descriptionManager.requestDescription(
+                                        networkManager, slot, it->second.name);
+                                    // Keep quaff menu open so they can quaff
+                                    // after reading the description.
+                                    spdlog::info("Describe: requested '{}'",
+                                        it->second.name);
+                                } else {
+                                    // Quaff the potion
+                                    json qMsg = { { "msg", "input" }, { "text", "q" } };
+                                    json letterMsg = { { "msg", "input" },
+                                        { "text", std::string(1, c) } };
+                                    networkManager.sendMessage(qMsg);
+                                    networkManager.sendMessage(letterMsg);
+
+                                    spdlog::info("Quaff: sent 'q' + '{}'", c);
+
+                                    // Trigger animation
+                                    SpriteTransform et;
+                                    et.posX = 0.0f;
+                                    et.posY = 0.15f;
+                                    et.scaleX = 0.5f;
+                                    et.scaleY = 0.5f;
+                                    SpriteHandle h = spriteManager.play(
+                                        "potion_quaff", SpriteSpace::Screen, et);
+                                    if (h != INVALID_SPRITE) {
+                                        activeEffects.push_back(h);
+                                    }
+
+                                    // Exit quaff menu
+                                    WindowManager::instance().cancelQuaffMenu(
+                                        renderer.window());
+                                }
+                            }
+                        }
                         continue;
                     }
 
@@ -492,6 +591,11 @@ int main(int argc, char* argv[])
                                 break;
                             }
                         }
+                    }
+
+                    // ── ImGui: only events not consumed by handlers above ──
+                    if (WindowManager::instance().shouldRenderUI()) {
+                        ImGui_ImplSDL3_ProcessEvent(&event);
                     }
                 }
             }

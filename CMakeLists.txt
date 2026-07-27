@@ -56,6 +56,9 @@ target_sources(dcss3d_obj PRIVATE
 	src/debug.hpp
 	src/debug.cpp
 
+	src/DescriptionManager.hpp
+	src/DescriptionManager.cpp
+
 	imgui/imconfig.h
 	imgui/imgui.cpp
 	imgui/imgui.h
@@ -248,6 +251,7 @@ target_sources(dcss3d_tests PRIVATE
     src/GameMap.cpp
     src/Turn.cpp
     src/SpriteManager.cpp
+    src/DescriptionManager.cpp
     src/ShaderUtil.cpp
     src/MessageQueue.cpp
     src/PlayerState.cpp

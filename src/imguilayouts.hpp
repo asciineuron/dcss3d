@@ -68,7 +68,8 @@ bool PinButton(const char* windowName);
 void displayAllWindows(const Player& player, const GameMap& map,
     NetworkManager& networkManager, Renderer& renderer,
     const MessageLog& messageLog,
-    const char* layoutFilename);
+    const char* layoutFilename,
+    class DescriptionManager* descManager = nullptr);
 
 void displayPlayer(const Player&);
 
@@ -88,3 +89,12 @@ void renderMenu(Renderer&);
 
 // Debug/settings window with layout management controls
 void settingsMenu(const char* layoutFilename = "window_layout.json");
+
+// Quaff potion menu — modal popup listing potions in player inventory.
+// Letter selection is handled in the main event loop; this just renders the UI.
+void quaffMenu(const Player& player);
+
+// Item description modal — shows the description text for an examined item.
+// Called when DescriptionManager has a pending description.
+void descriptionWindow(const std::string& itemName,
+                        const std::string& description);

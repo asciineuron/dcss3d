@@ -1,4 +1,5 @@
 #include "imguilayouts.hpp"
+#include "DescriptionManager.hpp"
 #include "MessageQueue.hpp"
 #include "Turn.hpp"
 #include "WindowManager.hpp"
@@ -129,7 +130,8 @@ static void applyResetLayout(const char* windowName, int index)
 void displayAllWindows(const Player& player, const GameMap& map,
     NetworkManager& networkManager, Renderer& renderer,
     const MessageLog& messageLog,
-    const char* layoutFilename)
+    const char* layoutFilename,
+    DescriptionManager* descManager)
 {
     WindowManager& wm = WindowManager::instance();
 
@@ -170,6 +172,42 @@ void displayAllWindows(const Player& player, const GameMap& map,
             ImGui::EndPopup();
         }
         return; // block other windows
+    }
+
+    // Quaff menu popup lifecycle.
+    {
+        static WindowManager::Mode s_lastQuaffMode = WindowManager::Mode::Normal;
+
+        if (wm.getMode() == WindowManager::Mode::QuaffMenu
+            && s_lastQuaffMode != WindowManager::Mode::QuaffMenu) {
+            ImGui::OpenPopup("Quaff which potion?");
+        }
+        if (s_lastQuaffMode == WindowManager::Mode::QuaffMenu
+            && wm.getMode() != WindowManager::Mode::QuaffMenu) {
+            ImGui::CloseCurrentPopup();
+        }
+        s_lastQuaffMode = wm.getMode();
+    }
+
+    // Description window can appear on top of quaff menu — show it first.
+    if (descManager && descManager->hasDescription()) {
+        static bool s_descOpen = false;
+        if (!s_descOpen) {
+            ImGui::OpenPopup(descManager->itemName().c_str());
+            s_descOpen = true;
+        }
+        descriptionWindow(descManager->itemName(), descManager->description());
+        if (!ImGui::IsPopupOpen(descManager->itemName().c_str())) {
+            descManager->dismiss();
+            s_descOpen = false;
+        }
+        // Fall through to quaff menu — both popups can stack.
+    }
+
+    const bool inQuaffMenu = (wm.getMode() == WindowManager::Mode::QuaffMenu);
+    if (inQuaffMenu) {
+        quaffMenu(player);
+        return; // block other windows while quaff menu is open
     }
 
     // Character select takes priority during Login phase
@@ -467,6 +505,63 @@ bool loadWindowLayout(const char* filename)
 
     spdlog::info("Window layout loaded from: {} ({} windows)", filename, g_savedLayout.size());
     return true;
+}
+
+void quaffMenu(const Player& player)
+{
+    if (ImGui::BeginPopupModal("Quaff which potion?", nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize)) {
+
+        // Gather potions from inventory
+        struct PotionEntry {
+            int slot;
+            std::string name;
+        };
+        std::vector<PotionEntry> potions;
+        for (const auto& [slot, item] : player.data().inv) {
+            if (item.base_type == kBaseTypePotion) {
+                potions.push_back({ slot, item.name });
+            }
+        }
+
+        if (potions.empty()) {
+            ImGui::Text("You have no potions.");
+        } else {
+            ImGui::Text("Press a letter to quaff:");
+            ImGui::Spacing();
+            for (const auto& p : potions) {
+                char letter = static_cast<char>('a' + p.slot);
+                ImGui::Text("  %c — %s", letter, p.name.c_str());
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::Text("[letter to quaff]  [? + letter to describe]  [ESC to cancel]");
+
+        ImGui::EndPopup();
+    }
+}
+
+void descriptionWindow(const std::string& itemName,
+                        const std::string& description)
+{
+    std::string title = itemName;
+    if (title.empty()) title = "Item Description";
+
+    if (ImGui::BeginPopupModal(title.c_str(), nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize)) {
+        // Wrap long text
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 40.0f);
+        ImGui::TextUnformatted(description.c_str());
+        ImGui::PopTextWrapPos();
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        ImGui::Text("[ESC to close]");
+
+        ImGui::EndPopup();
+    }
 }
 
 void settingsMenu(const char* layoutFilename)

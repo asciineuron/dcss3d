@@ -19,6 +19,7 @@ public:
         Overlay, // All windows visible, game input paused (absolute mouse)
         Equipment, // Only equipment window, game input paused (absolute mouse)
         QuitConfirm, // Quit confirmation modal, game input paused (absolute mouse)
+        QuaffMenu, // Quaff potion selection modal, game input paused (absolute mouse)
     };
 
     static WindowManager& instance();
@@ -37,6 +38,10 @@ public:
     // Confirm quit — set flag for main loop to exit.
     void confirmQuit();
     bool isQuitConfirmed() const;
+
+    // Enter/cancel quaff menu mode.
+    void enterQuaffMenu(SDL_Window* window);
+    void cancelQuaffMenu(SDL_Window* window);
 
     // Whether any imgui UI should be rendered this frame
     bool shouldRenderUI() const;

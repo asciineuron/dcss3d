@@ -24,8 +24,11 @@ struct InventoryItem {
     int count = 0;
     int slot = -1; // letter index ('a' = 0, 'b' = 1, ...)
     int idx = -1; // item type index
-    int base_type = -1; // 0=weapon, 1=missile, 2=armour, 100=empty
+    int base_type = -1; // object_class_type enum (OBJ_POTIONS=7 in v34)
 };
+
+// Well-known base_type values (from crawl's object-class-type.h, v34).
+constexpr int kBaseTypePotion = 7;
 
 struct PlayerData {
     std::string name;
