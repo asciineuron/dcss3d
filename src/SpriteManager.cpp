@@ -100,9 +100,9 @@ SpriteAtlas::SpriteAtlas(const json& descriptor)
 
 const AnimationClip* SpriteAtlas::findAnimation(std::string_view name) const
 {
-    // Convert string_view to string for unordered_map lookup
-    std::string key(name);
-    auto it = m_clips.find(key);
+    // Heterogeneous lookup via transparent std::string hash (C++20).
+    // No allocation needed for string_view keys.
+    auto it = m_clips.find(name);
     if (it != m_clips.end()) {
         return &it->second;
     }
@@ -166,8 +166,9 @@ GpuSpriteData SpriteInstance::gpuData() const
     data.b = m_transform.b;
     data.a = m_transform.a;
 
-    // UV from current frame
-    if (m_clip && m_currentFrame < m_clip->frames.size()) {
+    // UV from current frame — guard against empty clips
+    if (m_clip && !m_clip->frames.empty()
+        && m_currentFrame < m_clip->frames.size()) {
         const auto& frame = m_clip->frames[m_currentFrame];
         data.texU = frame.u;
         data.texV = frame.v;
@@ -200,7 +201,8 @@ SpriteManager::SpriteManager(SDL_GPUDevice* device, SDL_Window* window)
 {
     m_instances.reserve(kInitialCapacity);
     m_instanceActive.reserve(kInitialCapacity);
-    m_gpuData.reserve(kInitialCapacity);
+    m_freeSlots.reserve(kInitialCapacity);
+    m_batches.reserve(kMaxAtlasBatches);
 }
 
 SpriteManager::~SpriteManager()
@@ -326,13 +328,25 @@ SpriteAtlas* SpriteManager::findAtlasFor(std::string_view animationName) const
     return nullptr;
 }
 
+size_t SpriteManager::instanceIndexForHandle(SpriteHandle handle) const
+{
+    // Linear scan through active instances.  The instance count is bounded
+    // by kMaxSprites (64), so this is cheap.
+    for (size_t i = 0; i < m_instances.size(); ++i) {
+        if (m_instanceActive[i] && m_instances[i].handle() == handle) {
+            return i;
+        }
+    }
+    return static_cast<size_t>(-1); // sentinel for not-found
+}
+
 SpriteInstance* SpriteManager::instanceForHandle(SpriteHandle handle)
 {
-    if (handle == INVALID_SPRITE || handle > m_instances.size()) {
+    if (handle == INVALID_SPRITE) {
         return nullptr;
     }
-    size_t idx = handle - 1;
-    if (!m_instanceActive[idx]) {
+    size_t idx = instanceIndexForHandle(handle);
+    if (idx == static_cast<size_t>(-1)) {
         return nullptr;
     }
     return &m_instances[idx];
@@ -340,11 +354,11 @@ SpriteInstance* SpriteManager::instanceForHandle(SpriteHandle handle)
 
 const SpriteInstance* SpriteManager::instanceForHandle(SpriteHandle handle) const
 {
-    if (handle == INVALID_SPRITE || handle > m_instances.size()) {
+    if (handle == INVALID_SPRITE) {
         return nullptr;
     }
-    size_t idx = handle - 1;
-    if (!m_instanceActive[idx]) {
+    size_t idx = instanceIndexForHandle(handle);
+    if (idx == static_cast<size_t>(-1)) {
         return nullptr;
     }
     return &m_instances[idx];
@@ -367,26 +381,39 @@ SpriteHandle SpriteManager::play(std::string_view animationName,
     }
 
     // Monotonically increasing handles — simplifies lifetime tracking.
-    // Old handles are never reused.
+    // Storage slots are recycled via the free list to prevent unbounded
+    // vector growth over long game sessions.
     SpriteHandle handle = m_nextHandle++;
-    m_instances.emplace_back(clip, space, transform);
-    m_instanceActive.push_back(true);
-    m_gpuData.push_back({});
 
-    spdlog::debug("SpriteManager::play: '{}' -> handle {}", animationName, handle);
+    size_t idx;
+    if (!m_freeSlots.empty()) {
+        idx = m_freeSlots.back();
+        m_freeSlots.pop_back();
+        m_instances[idx] = SpriteInstance(clip, space, transform);
+        m_instanceActive[idx] = true;
+    } else {
+        idx = m_instances.size();
+        m_instances.emplace_back(clip, space, transform);
+        m_instanceActive.push_back(true);
+    }
+    m_instances[idx].setHandle(handle);
+    m_instances[idx].setOwnerAtlas(atlas);
+
+    spdlog::debug("SpriteManager::play: '{}' -> handle {} (slot {})",
+        animationName, handle, idx);
     return handle;
 }
 
 void SpriteManager::stop(SpriteHandle handle)
 {
-    SpriteInstance* inst = instanceForHandle(handle);
-    if (!inst) {
+    size_t idx = instanceIndexForHandle(handle);
+    if (idx == static_cast<size_t>(-1)) {
         return;
     }
 
-    size_t idx = handle - 1;
     m_instanceActive[idx] = false;
-    spdlog::debug("SpriteManager::stop: handle {}", handle);
+    m_freeSlots.push_back(idx);
+    spdlog::debug("SpriteManager::stop: handle {} (slot {})", handle, idx);
 }
 
 void SpriteManager::setTransform(SpriteHandle handle, const SpriteTransform& t)
@@ -416,6 +443,7 @@ void SpriteManager::setAnimation(SpriteHandle handle, std::string_view animation
     }
 
     inst->setClip(clip, true); // restart with new clip
+    inst->setOwnerAtlas(atlas); // may have changed atlas
     spdlog::debug("SpriteManager::setAnimation: handle {} -> '{}'", handle,
         animationName);
 }
@@ -449,8 +477,8 @@ GpuSpriteData SpriteManager::gpuData(SpriteHandle handle) const
 size_t SpriteManager::activeCount() const
 {
     size_t count = 0;
-    for (bool active : m_instanceActive) {
-        if (active) count++;
+    for (size_t i = 0; i < m_instances.size(); ++i) {
+        if (m_instanceActive[i]) count++;
     }
     return count;
 }
@@ -459,8 +487,10 @@ void SpriteManager::update(float dt)
 {
     for (size_t i = 0; i < m_instances.size(); ++i) {
         if (m_instanceActive[i]) {
-            m_instances[i].tick(dt);
-            // gpuData will be computed on demand in draw()
+            bool completed = m_instances[i].tick(dt);
+            // If a play-once clip just finished and the caller hasn't
+            // stopped it yet, it will be detected by isComplete().
+            (void)completed;
         }
     }
 }
@@ -473,41 +503,88 @@ void SpriteManager::uploadGpuData(SDL_GPUCommandBuffer* cmdBuf)
 
     size_t count = activeCount();
     if (count == 0) {
+        m_batches.clear();
+        m_totalInstances = 0;
         return;
     }
 
     ensureGpuResources();
 
-    // --- Build per-instance GPU data from active sprites ---
-    m_gpuData.clear();
+    // --- Group active sprites by atlas ---
+    // We build: (1) per-instance GPU data packed in atlas order,
+    //          (2) one indirect draw command per atlas batch.
+    std::vector<GpuSpriteData> gpuData;
+    gpuData.reserve(count);
+    m_batches.clear();
+
+    // Map atlas pointers to batch indices.
+    // We keep a small array since kMaxAtlasBatches is tiny.
+    const SpriteAtlas* batchAtlas[kMaxAtlasBatches] = {};
+    Uint32 batchFirstInstance[kMaxAtlasBatches] = {};
+    Uint32 batchCount[kMaxAtlasBatches] = {};
+    size_t batchIdx = 0;
+
     for (size_t i = 0; i < m_instances.size(); ++i) {
-        if (m_instanceActive[i]) {
-            m_gpuData.push_back(m_instances[i].gpuData());
+        if (!m_instanceActive[i]) continue;
+
+        const SpriteAtlas* atlas = m_instances[i].ownerAtlas();
+
+        // Find or create batch for this atlas
+        size_t b = 0;
+        for (; b < batchIdx; ++b) {
+            if (batchAtlas[b] == atlas) break;
         }
+        if (b == batchIdx) {
+            // New atlas batch
+            if (batchIdx >= kMaxAtlasBatches) {
+                spdlog::warn("SpriteManager: too many atlas batches, truncating");
+                break;
+            }
+            batchAtlas[b] = atlas;
+            batchFirstInstance[b] = static_cast<Uint32>(gpuData.size());
+            batchCount[b] = 0;
+            ++batchIdx;
+        }
+
+        gpuData.push_back(m_instances[i].gpuData());
+        ++batchCount[b];
     }
 
-    Uint32 instanceCount = static_cast<Uint32>(m_gpuData.size());
-    if (instanceCount == 0) {
+    Uint32 totalInstances = static_cast<Uint32>(gpuData.size());
+    if (totalInstances == 0) {
+        m_batches.clear();
+        m_totalInstances = 0;
         return;
     }
 
-    // --- Map transfer buffers ---
+    // --- Map and upload instance data ---
     GpuSpriteData* mapped = static_cast<GpuSpriteData*>(
         SDL_MapGPUTransferBuffer(m_device, m_spriteTransferBuf, true));
-    SDL_memcpy(mapped, m_gpuData.data(),
-        instanceCount * sizeof(GpuSpriteData));
+    if (!mapped) {
+        spdlog::error("SpriteManager: failed to map sprite transfer buffer");
+        return;
+    }
+    SDL_memcpy(mapped, gpuData.data(),
+        totalInstances * sizeof(GpuSpriteData));
     SDL_UnmapGPUTransferBuffer(m_device, m_spriteTransferBuf);
 
+    // --- Build indirect draw commands ---
     SDL_GPUIndexedIndirectDrawCommand* drawCmd =
         static_cast<SDL_GPUIndexedIndirectDrawCommand*>(
             SDL_MapGPUTransferBuffer(m_device, m_drawTransferBuf, true));
-    drawCmd[0] = {
-        .num_indices = 6,
-        .num_instances = instanceCount,
-        .first_index = 0,
-        .vertex_offset = 0,
-        .first_instance = 0
-    };
+    if (!drawCmd) {
+        spdlog::error("SpriteManager: failed to map draw transfer buffer");
+        return;
+    }
+    for (size_t b = 0; b < batchIdx; ++b) {
+        drawCmd[b] = {
+            .num_indices = 6,
+            .num_instances = batchCount[b],
+            .first_index = 0,
+            .vertex_offset = 0,
+            .first_instance = batchFirstInstance[b]
+        };
+    }
     SDL_UnmapGPUTransferBuffer(m_device, m_drawTransferBuf);
 
     // --- Upload via copy pass ---
@@ -518,7 +595,7 @@ void SpriteManager::uploadGpuData(SDL_GPUCommandBuffer* cmdBuf)
     };
     SDL_GPUBufferRegion instanceRegion = {
         .buffer = m_spriteBuffer, .offset = 0,
-        .size = static_cast<Uint32>(instanceCount * sizeof(GpuSpriteData))
+        .size = static_cast<Uint32>(totalInstances * sizeof(GpuSpriteData))
     };
     SDL_UploadToGPUBuffer(copyPass, &instanceLoc, &instanceRegion, true);
 
@@ -527,44 +604,34 @@ void SpriteManager::uploadGpuData(SDL_GPUCommandBuffer* cmdBuf)
     };
     SDL_GPUBufferRegion drawRegion = {
         .buffer = m_drawBuffer, .offset = 0,
-        .size = sizeof(SDL_GPUIndexedIndirectDrawCommand)
+        .size = static_cast<Uint32>(batchIdx * sizeof(SDL_GPUIndexedIndirectDrawCommand))
     };
     SDL_UploadToGPUBuffer(copyPass, &drawLoc, &drawRegion, true);
 
     SDL_EndGPUCopyPass(copyPass);
 
-    m_instanceCount = instanceCount;
+    // --- Store batch metadata for draw() ---
+    m_batches.clear();
+    for (size_t b = 0; b < batchIdx; ++b) {
+        m_batches.push_back({
+            .texture = batchAtlas[b]->texture(),
+            .sampler = batchAtlas[b]->sampler(),
+            .firstInstance = batchFirstInstance[b],
+            .instanceCount = batchCount[b]
+        });
+    }
+    m_totalInstances = totalInstances;
 }
 
 void SpriteManager::draw(SDL_GPURenderPass* renderPass)
 {
-    if (!m_device || !renderPass || m_instanceCount == 0) {
-        return;
-    }
-
-    // Find the atlas for the first active sprite.
-    SDL_GPUTexture* atlasTexture = nullptr;
-    SDL_GPUSampler* atlasSampler = nullptr;
-    for (size_t i = 0; i < m_instances.size(); ++i) {
-        if (m_instanceActive[i]) {
-            for (const auto& atlas : m_atlases) {
-                if (atlas->hasAnimation(m_instances[i].clip()->name)) {
-                    atlasTexture = atlas->texture();
-                    atlasSampler = atlas->sampler();
-                    break;
-                }
-            }
-            break;
-        }
-    }
-
-    if (!atlasTexture || !atlasSampler) {
-        spdlog::warn("SpriteManager::draw: no atlas texture/sampler");
+    if (!m_device || !renderPass || m_totalInstances == 0 || m_batches.empty()) {
         return;
     }
 
     SDL_BindGPUGraphicsPipeline(renderPass, m_screenPipeline);
 
+    // Vertex buffers are shared across all batches
     SDL_GPUBufferBinding vb0 = { .buffer = m_quadVertexBuffer, .offset = 0 };
     SDL_BindGPUVertexBuffers(renderPass, 0, &vb0, 1);
 
@@ -574,19 +641,46 @@ void SpriteManager::draw(SDL_GPURenderPass* renderPass)
     SDL_GPUBufferBinding ib = { .buffer = m_quadIndexBuffer, .offset = 0 };
     SDL_BindGPUIndexBuffer(renderPass, &ib, SDL_GPU_INDEXELEMENTSIZE_16BIT);
 
-    SDL_GPUTextureSamplerBinding texBind = {
-        .texture = atlasTexture,
-        .sampler = atlasSampler
-    };
-    SDL_BindGPUFragmentSamplers(renderPass, 0, &texBind, 1);
+    // One draw call per atlas batch — each batch binds its own texture/sampler
+    // and references the corresponding range of instance data.
+    for (size_t b = 0; b < m_batches.size(); ++b) {
+        const auto& batch = m_batches[b];
 
-    SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer, 0, 1);
+        if (!batch.texture || !batch.sampler) {
+            spdlog::warn("SpriteManager::draw: batch {} missing texture/sampler", b);
+            continue;
+        }
+
+        SDL_GPUTextureSamplerBinding texBind = {
+            .texture = batch.texture,
+            .sampler = batch.sampler
+        };
+        SDL_BindGPUFragmentSamplers(renderPass, 0, &texBind, 1);
+
+        SDL_DrawGPUIndexedPrimitivesIndirect(renderPass, m_drawBuffer,
+            b * sizeof(SDL_GPUIndexedIndirectDrawCommand), 1);
+    }
 }
 
 void SpriteManager::ensureGpuResources()
 {
-    if (!m_device || m_screenPipeline) {
-        return; // already created
+    if (!m_device) {
+        return;
+    }
+
+    // If the swapchain format has changed (e.g. display mode change),
+    // destroy and recreate the pipeline.
+    if (m_screenPipeline) {
+        SDL_GPUTextureFormat curFmt =
+            SDL_GetGPUSwapchainTextureFormat(m_device, m_window);
+        if (curFmt != m_pipelineFormat) {
+            spdlog::info("SpriteManager: swapchain format changed, recreating pipeline");
+            SDL_ReleaseGPUGraphicsPipeline(m_device, m_screenPipeline);
+            m_screenPipeline = nullptr;
+            m_pipelineFormat = SDL_GPU_TEXTUREFORMAT_INVALID;
+        } else {
+            return; // already created and format matches
+        }
     }
 
     // --- Unit quad vertex buffer (slot 0) ---
@@ -650,16 +744,18 @@ void SpriteManager::ensureGpuResources()
     };
     m_spriteTransferBuf = SDL_CreateGPUTransferBuffer(m_device, &spriteTransInfo);
 
-    // --- Indirect draw buffer ---
+    // --- Indirect draw buffer (one command per atlas batch) ---
     SDL_GPUBufferCreateInfo drawBufInfo = {
         .usage = SDL_GPU_BUFFERUSAGE_INDIRECT,
-        .size = sizeof(SDL_GPUIndexedIndirectDrawCommand)
+        .size = static_cast<Uint32>(kMaxAtlasBatches
+            * sizeof(SDL_GPUIndexedIndirectDrawCommand))
     };
     m_drawBuffer = SDL_CreateGPUBuffer(m_device, &drawBufInfo);
 
     SDL_GPUTransferBufferCreateInfo drawTransInfo = {
         .usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-        .size = sizeof(SDL_GPUIndexedIndirectDrawCommand)
+        .size = static_cast<Uint32>(kMaxAtlasBatches
+            * sizeof(SDL_GPUIndexedIndirectDrawCommand))
     };
     m_drawTransferBuf = SDL_CreateGPUTransferBuffer(m_device, &drawTransInfo);
 
@@ -777,6 +873,9 @@ void SpriteManager::createPipeline()
     };
 
     m_screenPipeline = SDL_CreateGPUGraphicsPipeline(m_device, &pipeInfo);
+    if (m_screenPipeline) {
+        m_pipelineFormat = colorTarget.format;
+    }
 
     SDL_ReleaseGPUShader(m_device, vertShader);
     SDL_ReleaseGPUShader(m_device, fragShader);
@@ -787,5 +886,6 @@ void SpriteManager::createPipeline()
                 SDL_GetError()));
     }
 
-    spdlog::info("SpriteManager: GPU pipeline created");
+    spdlog::info("SpriteManager: GPU pipeline created (format {})",
+        static_cast<int>(m_pipelineFormat));
 }

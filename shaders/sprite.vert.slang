@@ -28,13 +28,14 @@ struct main_out {
 [shader("vertex")]
 main_out main(main_in input)
 {
-    // Build the sprite quad from the unit corner
-    float2 pos = input.corner;
+    // Build the sprite quad from the unit corner, centering at origin
+    // so rotation pivots around the sprite center.
+    float2 pos = input.corner - 0.5;
 
     // Scale
     pos *= input.scale_uv1.xy;
 
-    // Rotate
+    // Rotate around center
     float c = cos(input.pos_rot.w);
     float s = sin(input.pos_rot.w);
     float2x2 rot = { c, s, -s, c };

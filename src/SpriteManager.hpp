@@ -11,6 +11,15 @@
 
 using json = nlohmann::json;
 
+// Transparent hash functor that enables heterogeneous lookup in
+// std::unordered_map<std::string, ...> with std::string_view keys.
+struct TransparentStringHash {
+    using is_transparent = void; // enable find() with string_view
+    size_t operator()(std::string_view sv) const noexcept {
+        return std::hash<std::string_view>{}(sv);
+    }
+};
+
 // ============================================================
 // AnimationClip — pure data: a named sequence of frames
 // ============================================================
@@ -73,6 +82,12 @@ struct GpuSpriteData {
 };
 static_assert(sizeof(GpuSpriteData) == 64,
     "GpuSpriteData must be 64 bytes (4 x float4)");
+// Verify exact field offsets against the hardcoded vertex-attribute offsets
+// in the sprite pipeline.  If these fire, the shader will read garbage.
+static_assert(offsetof(GpuSpriteData, posX) == 0, "posX must be at offset 0");
+static_assert(offsetof(GpuSpriteData, scaleX) == 16, "scaleX must be at offset 16");
+static_assert(offsetof(GpuSpriteData, texW) == 32, "texW must be at offset 32");
+static_assert(offsetof(GpuSpriteData, b) == 48, "b must be at offset 48");
 
 // ============================================================
 // SpriteAtlas — GPU texture + catalog of named AnimationClips
@@ -112,7 +127,9 @@ public:
 
 private:
     std::string m_textureFilename;
-    std::unordered_map<std::string, AnimationClip> m_clips;
+    // Transparent hash/equality enables find() with string_view without allocation.
+    std::unordered_map<std::string, AnimationClip,
+        TransparentStringHash, std::equal_to<>> m_clips;
     SDL_GPUTexture* m_texture = nullptr;
     SDL_GPUSampler* m_sampler = nullptr;
 };
@@ -149,6 +166,14 @@ public:
     size_t currentFrame() const { return m_currentFrame; }
     float elapsedTime() const { return m_elapsed; }
 
+    // Handle assigned by SpriteManager when this instance is created.
+    SpriteHandle handle() const { return m_handle; }
+    void setHandle(SpriteHandle h) { m_handle = h; }
+
+    // Which atlas owns this instance's clip (set by SpriteManager on creation).
+    const class SpriteAtlas* ownerAtlas() const { return m_ownerAtlas; }
+    void setOwnerAtlas(const class SpriteAtlas* a) { m_ownerAtlas = a; }
+
 private:
     const AnimationClip* m_clip;
     SpriteSpace m_space;
@@ -156,6 +181,8 @@ private:
     float m_elapsed = 0.0f;          // seconds since animation started
     size_t m_currentFrame = 0;
     bool m_complete = false;         // true when non-loop clip finishes
+    SpriteHandle m_handle = 0;
+    const class SpriteAtlas* m_ownerAtlas = nullptr;
 
     void recalcFrame();
 };
@@ -226,17 +253,29 @@ private:
 
     std::vector<std::unique_ptr<SpriteAtlas>> m_atlases;
 
-    // Instance storage: index = handle - 1
+    // --- Instance storage ---
+    // m_instances holds all active sprites; inactive slots are tracked in
+    // m_freeSlots for reuse.  Handles are monotonically increasing and
+    // never reused, but the storage slots are recycled via the free list
+    // to prevent unbounded growth over long sessions.
     std::vector<SpriteInstance> m_instances;
     std::vector<bool> m_instanceActive;
+    std::vector<size_t> m_freeSlots;       // indices that are available for reuse
     SpriteHandle m_nextHandle = 1;
 
-    // GPU staging
-    std::vector<GpuSpriteData> m_gpuData;
-    Uint32 m_instanceCount = 0; // set by uploadGpuData, used by draw
+    // GPU staging: atlas-grouped draw batches, populated by uploadGpuData().
+    struct AtlasBatch {
+        SDL_GPUTexture* texture = nullptr;
+        SDL_GPUSampler* sampler = nullptr;
+        Uint32 firstInstance = 0;
+        Uint32 instanceCount = 0;
+    };
+    std::vector<AtlasBatch> m_batches;   // one per atlas with active sprites
+    Uint32 m_totalInstances = 0;         // total instances across all batches
 
     // GPU resources — created lazily in draw().
     SDL_GPUGraphicsPipeline* m_screenPipeline = nullptr;
+    SDL_GPUTextureFormat m_pipelineFormat = SDL_GPU_TEXTUREFORMAT_INVALID;
     SDL_GPUBuffer* m_quadVertexBuffer = nullptr;    // unit quad (slot 0)
     SDL_GPUBuffer* m_quadIndexBuffer = nullptr;     // 2 triangles
     SDL_GPUBuffer* m_spriteBuffer = nullptr;        // instance data (slot 1)
@@ -246,10 +285,12 @@ private:
 
     static constexpr size_t kInitialCapacity = 16;
     static constexpr size_t kMaxSprites = 64;
+    static constexpr size_t kMaxAtlasBatches = 8;
 
     SpriteAtlas* findAtlasFor(std::string_view animationName) const;
     SpriteInstance* instanceForHandle(SpriteHandle handle);
     const SpriteInstance* instanceForHandle(SpriteHandle handle) const;
+    size_t instanceIndexForHandle(SpriteHandle handle) const;
 
     void ensureGpuResources();
     void createPipeline();
