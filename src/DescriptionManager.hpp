@@ -14,13 +14,12 @@ class NetworkManager;
 // the placeholder with a rendered spell list from the spellset array.
 // We strip color tags for plain-text display and handle the placeholder
 // based on spellset presence.
+//
+// Registered alongside UIManager for ui-push messages: UIManager manages
+// the UI stack, DescriptionManager parses and caches the description text.
 class DescriptionManager : public MessageHandler {
 public:
     DescriptionManager() = default;
-
-    // Request a description for an inventory item at the given slot.
-    void requestDescription(NetworkManager& net, int invSlot,
-                            const std::string& itemName);
 
     bool hasDescription() const { return !m_description.empty(); }
     const std::string& itemName() const { return m_itemName; }
@@ -29,11 +28,11 @@ public:
 
     void handleMessage(const json& message) override;
 
+    // Strip DCSS color tags from text.  Public so UIManagerRender can use it.
+    static std::string stripColorTags(const std::string& raw);
+
 private:
     std::string m_itemName;
     std::string m_description;
     bool m_pending = false;
-
-    // Strip DCSS color tags (<lightgrey>, </lightgrey>, etc.) from text.
-    static std::string stripColorTags(const std::string& raw);
 };

@@ -213,7 +213,6 @@ void Renderer::doRender(GameMap& map, const Camera& camera, Pos2<int> playerPos,
 
         // Draw inanimate objects on top — same instanced model scheme
         for (auto& [file, model] : m_objectModelCache) {
-            spdlog::debug("drawing object model '{}'", file);
             model->draw(scenePass);
         }
 

@@ -4,21 +4,6 @@
 #include <cctype>
 #include <spdlog/spdlog.h>
 
-void DescriptionManager::requestDescription(NetworkManager& net, int invSlot,
-                                             const std::string& itemName)
-{
-    net.sendMessage({ { "msg", "input" }, { "text", "q" } });
-    net.sendMessage({ { "msg", "inv_item_describe" }, { "slot", invSlot } });
-    net.sendMessage({ { "msg", "key" }, { "keycode", 27 } }); // ESC
-
-    m_itemName = itemName;
-    m_description.clear();
-    m_pending = true;
-
-    spdlog::debug("DescriptionManager: requested description for slot {} ('{}')",
-        invSlot, itemName);
-}
-
 void DescriptionManager::dismiss()
 {
     m_itemName.clear();

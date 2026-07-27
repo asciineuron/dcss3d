@@ -1,6 +1,5 @@
 #pragma once
 
-#include "CharacterSelect.hpp"
 #include "MessageQueue.hpp"
 #include <SDL3/SDL_scancode.h>
 #include <optional>
@@ -15,11 +14,10 @@ class WindowManager : public MessageHandler {
 public:
     enum class Mode {
         Login, // Only network window, no skybox/game (waiting for login_success)
-        Normal, // No imgui windows, game active (relative mouse)
+        Normal, // Game active (relative mouse).  UIManager may have stacked UI.
         Overlay, // All windows visible, game input paused (absolute mouse)
         Equipment, // Only equipment window, game input paused (absolute mouse)
         QuitConfirm, // Quit confirmation modal, game input paused (absolute mouse)
-        QuaffMenu, // Quaff potion selection modal, game input paused (absolute mouse)
     };
 
     static WindowManager& instance();
@@ -38,10 +36,6 @@ public:
     // Confirm quit — set flag for main loop to exit.
     void confirmQuit();
     bool isQuitConfirmed() const;
-
-    // Enter/cancel quaff menu mode.
-    void enterQuaffMenu(SDL_Window* window);
-    void cancelQuaffMenu(SDL_Window* window);
 
     // Whether any imgui UI should be rendered this frame
     bool shouldRenderUI() const;
@@ -67,15 +61,8 @@ public:
     // Whether login_success has been received (authentication complete).
     bool isLoggedIn() const;
 
-    // MessageHandler: responds to login_success, game_started, map, and
-    // newgame-choice ui-push messages.
+    // MessageHandler: responds to login_success and game_started.
     void handleMessage(const json& message) override;
-
-    // --- Character select state ---
-    // Set when a newgame-choice ui-push arrives; cleared on game_started.
-    void setCharacterSelectData(const NewgameChoice& data);
-    const NewgameChoice* getCharacterSelectData() const;
-    void clearCharacterSelectData();
 
 private:
     WindowManager() = default;
@@ -83,5 +70,4 @@ private:
     Mode m_previousMode = Mode::Normal;
     bool m_isLoggedIn = false;
     bool m_quitConfirmed = false;
-    std::optional<NewgameChoice> m_characterSelectData;
 };

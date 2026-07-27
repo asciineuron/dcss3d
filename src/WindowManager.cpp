@@ -78,34 +78,11 @@ bool WindowManager::isQuitConfirmed() const
     return m_quitConfirmed;
 }
 
-void WindowManager::enterQuaffMenu(SDL_Window* window)
-{
-    if (m_mode == Mode::Normal) {
-        m_previousMode = m_mode;
-        setMode(Mode::QuaffMenu);
-        syncMouseMode(window, shouldUseRelativeMouse());
-    }
-}
-
-void WindowManager::cancelQuaffMenu(SDL_Window* window)
-{
-    if (m_mode == Mode::QuaffMenu) {
-        setMode(m_previousMode);
-        syncMouseMode(window, shouldUseRelativeMouse());
-        // Flush accumulated relative mouse motion from absolute-mode
-        // movement so the camera doesn't jump on the next frame.
-        if (shouldUseRelativeMouse()) {
-            SDL_GetRelativeMouseState(nullptr, nullptr);
-        }
-    }
-}
-
 bool WindowManager::shouldRenderUI() const
 {
-    // Render ImGui in any mode except Normal (and even then, for pinned windows).
-    // QuitConfirm and QuaffMenu always need their modal popups.
-    return m_mode != Mode::Normal || m_mode == Mode::QuitConfirm
-        || m_mode == Mode::QuaffMenu;
+    // Render ImGui in any mode except Normal.
+    // QuitConfirm always needs its modal popup.
+    return m_mode != Mode::Normal || m_mode == Mode::QuitConfirm;
 }
 
 bool WindowManager::shouldProcessGameInput() const
@@ -138,9 +115,6 @@ bool WindowManager::isVisible(const char* windowName) const
     case Mode::QuitConfirm:
         // Only the quit confirmation modal is shown — no regular windows
         return false;
-    case Mode::QuaffMenu:
-        // Only the quaff modal is shown
-        return false;
     }
     return false;
 }
@@ -150,7 +124,7 @@ bool WindowManager::isGameConnected() const
     // In QuitConfirm, use the mode we'll return to on cancel.
     // This keeps the skybox visible when quitting from an active game
     // but hidden when quitting from the pre-game Login screen.
-    Mode effectiveMode = (m_mode == Mode::QuitConfirm || m_mode == Mode::QuaffMenu)
+    Mode effectiveMode = (m_mode == Mode::QuitConfirm)
         ? m_previousMode : m_mode;
     return effectiveMode != Mode::Login;
 }
@@ -175,53 +149,25 @@ void WindowManager::handleMessage(const json& message)
     }
 
     // Game process started — transition to Normal (playable); skybox becomes visible.
-    // The player can press Escape to toggle the overlay on.
     if (m_mode == Mode::Login && msgType == "game_started") {
-        m_characterSelectData.reset();
         setMode(Mode::Normal);
         return;
     }
-
-    // Character selection complete / game producing map data.
-    // Clear the selection UI so only normal game windows are shown.
-    if (msgType == "map") {
-        m_characterSelectData.reset();
-        return;
-    }
-
-    // Capture newgame-choice ui-push for the character select window.
-    if (msgType == "ui-push" && message.value("type", "") == "newgame-choice") {
-        auto choice = parseNewgameChoice(message);
-        if (choice.isValid) {
-            setCharacterSelectData(choice);
-        }
-    }
-}
-
-void WindowManager::setCharacterSelectData(const NewgameChoice& data)
-{
-    m_characterSelectData = data;
-}
-
-const NewgameChoice* WindowManager::getCharacterSelectData() const
-{
-    return m_characterSelectData.has_value() ? &*m_characterSelectData : nullptr;
-}
-
-void WindowManager::clearCharacterSelectData()
-{
-    m_characterSelectData.reset();
 }
 
 bool WindowManager::handleKeyEvent(SDL_Scancode scancode, SDL_Window* window)
 {
-    // In Login mode, mode-toggle keys are consumed but do nothing.
+    // In Login mode, F1 toggles overlay so the user can access
+    // the Network window.  ESC and E are still no-ops.
     if (m_mode == Mode::Login) {
         switch (scancode) {
         case SDL_SCANCODE_ESCAPE:
         case SDL_SCANCODE_E:
-        case SDL_SCANCODE_F1:
             return true; // consumed, no-op
+        case SDL_SCANCODE_F1:
+            toggleOverlay();
+            syncMouseMode(window, shouldUseRelativeMouse());
+            return true;
         default:
             return false;
         }
@@ -231,15 +177,6 @@ bool WindowManager::handleKeyEvent(SDL_Scancode scancode, SDL_Window* window)
     if (m_mode == Mode::QuitConfirm) {
         if (scancode == SDL_SCANCODE_ESCAPE) {
             cancelQuitConfirm(window);
-            return true;
-        }
-        return false;
-    }
-
-    // In QuaffMenu mode, Escape cancels the quaff menu.
-    if (m_mode == Mode::QuaffMenu) {
-        if (scancode == SDL_SCANCODE_ESCAPE) {
-            cancelQuaffMenu(window);
             return true;
         }
         return false;

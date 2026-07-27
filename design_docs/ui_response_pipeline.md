@@ -1355,3 +1355,245 @@ with no UI-state preconditions.
    `nlohmann/json.hpp`, and `MessageQueue.hpp`. The render method is declared
    in the header but defined in `UIManagerRender.cpp` which is NOT compiled
    into the test executable.
+
+---
+
+## 9. Implementation Status
+
+### Completed ✅
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | UIManager core state management (TDD) | ✅ 21 tests, 57 assertions, all passing |
+| 2 | Wire UIManager into the pipeline | ✅ 12 message types registered in handlerConfig |
+| 3 | Event loop restructure | ✅ 8-step priority cascade matching JS client |
+| 4 | Menu rendering (ImGui) | ✅ use_item, inventory, generic renderers |
+| 5 | Overlay rendering (ImGui) | ✅ describe-item, newgame-choice, progress-bar, game-over + generic fallback |
+| 6 | WindowManager & DescriptionManager cleanup | ✅ QuaffMenu removed, CharacterSelect moved to UIManager, deprecated code deleted |
+| 7.2 | Mouse click on menu items | ✅ Selectable items send hotkeys to server |
+| 7.3 | --more-- indicator in menus | ✅ Rendered as disabled text at bottom |
+| 7.4 | close_all_menus on level changes | ✅ clear() called on message receipt |
+| 7.5 | ui_cutoff handling | ✅ Handler stores hidden flag on entries |
+| 7.6 | ui-scroller-scroll handling | ✅ Handler merges scroll position into overlay data |
+
+### Additional fixes applied during integration
+
+- **Thread safety**: Added `std::mutex` to UIManager — `processMessages` dispatches handlers via `std::async`, so concurrent `close_all_menus` calls caused data races on `m_stack`
+- **Double-ESC bug**: Changed ESC from KEY_UP to KEY_DOWN; removed duplicate ESC send from forwarding step
+- **Mouse mode sync**: Moved to before `ImGui::NewFrame()` so menus are draggable/clickable
+- **ImGui capture reset**: Added `getMode() == Normal` guard so QuitConfirm buttons are clickable
+- **Quit key**: Changed from Shift+Q to Ctrl+Q to avoid conflict with game's quiver command
+- **Game input vs forwarding**: Step 7 now marks WASD/Space/Enter/`<`/`>` as handled, preventing fallback forwarding from sending movement keys to server
+- **ImGui popup → Begin**: Converted menu windows and quit confirm from `BeginPopupModal` to `Begin`/`End` for reliability
+- **Color tags**: Unified on `DescriptionManager::stripColorTags()`; applied to titles, items, and more-text
+- **Title object handling**: Server sends `"title":{"text":"..."}` — added `extractTitle()` helper
+
+### Remaining (follow-up work)
+
+#### 1. Quaff animation on server confirmation
+
+**Current state**: The old code triggered a sprite animation optimistically when the player
+pressed a letter in the quaff menu.  That code was removed in Phase 3 (the quaff flow is
+now server-driven).  No animation plays when the player drinks a potion.
+
+**What needs to happen**: Trigger the `potion_quaff` sprite animation when the server
+confirms a potion was consumed.  The trigger point is `UIManager::handleMessage("close_menu")`
+when the top-of-stack menu tag is `"use_item"` and the player's potion count decreased.
+
+**Files to modify**:
+- `src/UIManager.cpp` — in `handleMessage()`, before calling `pop()` for `close_menu`,
+  check if `m_stack.back().tag == "use_item"`.  If so, count potions from `Player::data().inv`
+  and compare with a cached count.  If decreased, signal the animation.
+- `src/UIManager.hpp` — add `int m_lastPotionCount = -1` member and a setter for the
+  `Player*` reference (or pass it to `handleMessage` via a callback).
+- `src/main.cpp` — pass a `Player*` to UIManager (or add `Player` to the `handlerConfig`
+  for `close_menu` so it can trigger the animation independently).
+
+**Hint**: Look at the removed quaff animation code (originally in `main.cpp` around the
+`quaffDescribePending` block) for the sprite transform parameters:
+```cpp
+SpriteTransform et;
+et.posX = 0.0f; et.posY = 0.15f;
+et.scaleX = 0.5f; et.scaleY = 0.5f;
+SpriteHandle h = spriteManager.play("potion_quaff", SpriteSpace::Screen, et);
+```
+
+---
+
+#### 2. Full overlay renderers
+
+**Current state**: The `render()` method in `src/UIManagerRender.cpp` has specific handlers
+for `describe-item`, `newgame-choice`, `progress-bar`, and `game-over`.  All other overlay
+types fall through to a generic handler that shows the raw title and body text.
+
+**What needs to happen**: Add specific rendering for each remaining overlay type.  The
+dispatch is in `UIManager::render()` (around line 280 of `UIManagerRender.cpp`).
+
+**Overlay types and their data shapes** (from the JS client's `ui-layouts.js`):
+
+| Type | Key fields in `entry.data` | Rendering approach |
+|------|---------------------------|-------------------|
+| `describe-generic` | `title`, `body` | Title + body text in scrollable region |
+| `describe-monster` | `title`, `body`, `panes` (array of {title, body}) | Title + body; if panes exist, tabbed sub-panes |
+| `describe-spell` | `title`, `body` | Title + body text |
+| `describe-god` | `title`, `body`, `panes` | Same as describe-monster |
+| `describe-cards` | `title`, `body` | Title + body text |
+| `describe-feature-wide` | `title`, `body` | Title + body text |
+| `formatted-scroller` | `title`, `body` | Scrollable text; arrow keys scroll; send `formatted_scroller_scroll` on scroll |
+| `version` | `title`, `body` | Title + body text |
+| `seed-selection` | `title`, `body` | Title + text input field (send input on enter) |
+| `msgwin-get-line` | `title`, `prompt` | Single-line text input |
+
+**Implementation pattern** (follow the existing `progress-bar` handler as a template):
+```cpp
+} else if (type == "describe-generic") {
+    std::string title = extractTitle(top.data, "title", "Generic");
+    std::string popupId = std::format("{}##overlay_{}", title, type);
+    ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_Appearing);
+    ImGui::SetNextWindowPos(ImVec2(250, 150), ImGuiCond_Appearing);
+    if (ImGui::Begin(popupId.c_str(), nullptr,
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(title.c_str());
+        ImGui::Separator();
+        ImGui::PushTextWrapPos(380.0f);
+        if (top.data.contains("body") && top.data["body"].is_string()) {
+            std::string body = DescriptionManager::stripColorTags(
+                top.data["body"].get<std::string>());
+            ImGui::TextUnformatted(body.c_str());
+        }
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::End();
+```
+
+**Hint**: The `formatted-scroller` type needs special handling — it must track scroll position
+and send `{"msg":"formatted_scroller_scroll","scroll":N}` back to the server when the user
+scrolls.  See `ui-layouts.js` function `formatted_scroller()` in the JS client reference.
+
+---
+
+#### 3. DescriptionManager → passive data holder
+
+**Current state**: `DescriptionManager` still implements `MessageHandler` and is registered
+alongside `UIManager` in `handlerConfig` for `"ui-push"` messages.  Both receive the message
+independently — UIManager pushes onto the stack, DescriptionManager parses the text.
+This "dual registration" works correctly but is architecturally impure.
+
+**What needs to happen**: Remove `MessageHandler` from `DescriptionManager`.  UIManager
+becomes the sole handler for `"ui-push"` and calls `DescriptionManager::setDescription()`
+directly when it receives a `describe-item` message.
+
+**Files to modify**:
+- `src/DescriptionManager.hpp` — remove `MessageHandler` inheritance, remove `handleMessage()`,
+  add `void setDescription(const std::string& itemName, const std::string& desc)` public method.
+- `src/DescriptionManager.cpp` — remove `handleMessage()` implementation, move the parsing
+  logic (color tag stripping, SPELLSET_PLACEHOLDER handling) into `setDescription()` or into
+  a static helper.  Keep `stripColorTags()` as a public static method.
+- `src/UIManager.hpp` — add `DescriptionManager* m_descMgr` member and a setter.
+- `src/UIManager.cpp` — in `handleMessage()` for `"ui-push"` with `type == "describe-item"`,
+  parse the title and body, strip color tags, handle SPELLSET_PLACEHOLDER, and call
+  `m_descMgr->setDescription(title, cleanBody)`.
+- `src/main.cpp` — call `uiManager.setDescriptionManager(&descriptionManager)` after
+  construction.  Remove `descriptionManager` from the `"ui-push"` and `"ui-pop"` entries
+  in `handlerConfig`.
+
+**Parsing logic to move** (currently in `DescriptionManager::handleMessage`):
+```cpp
+std::string rawBody = message.value("body", "");
+std::string clean = stripColorTags(rawBody);
+size_t placeholderPos = clean.find("SPELLSET_PLACEHOLDER");
+if (placeholderPos != std::string::npos) {
+    bool hasSpells = message.value("spellset", json::array()).size() > 0;
+    if (hasSpells) {
+        clean.replace(placeholderPos, 20, "[Spells listed in game]");
+    } else {
+        clean.erase(placeholderPos, 20);
+        // clean up double-newlines
+        size_t pos;
+        while ((pos = clean.find("\n\n\n")) != std::string::npos)
+            clean.erase(pos, 1);
+    }
+}
+```
+
+---
+
+#### 4. ui-scroller-scroll render integration
+
+**Current state**: `UIManager::handleMessage("ui-scroller-scroll")` stores the scroll position
+into `entry.data["scroll"]`, `["first"]`, and `["last"]`.  The `formatted-scroller` overlay
+renderer (currently the generic fallback) does not use these values.
+
+**What needs to happen**: When rendering a `formatted-scroller` overlay (see item 2 above),
+use `ImGui::SetScrollY()` to position the scrollable region based on `entry.data["scroll"]`.
+Also, when the user manually scrolls, send `{"msg":"formatted_scroller_scroll","scroll":N}`
+back to the server.
+
+**Files to modify**:
+- `src/UIManagerRender.cpp` — in the `formatted-scroller` renderer (see item 2), add:
+  ```cpp
+  // Apply server-specified scroll position
+  float scrollY = top.data.value("scroll", -1.0f);
+  if (scrollY >= 0.0f)
+      ImGui::SetScrollY(scrollY);
+  
+  // Render body in a child region
+  ImGui::BeginChild("scroller_body", ImVec2(0, 0), ImGuiChildFlags_Borders,
+      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+  ImGui::TextUnformatted(body.c_str());
+  
+  // Detect user scroll and send back to server
+  if (ImGui::GetScrollY() != m_lastScrollerScroll) {
+      m_lastScrollerScroll = ImGui::GetScrollY();
+      net.sendMessage({{"msg","formatted_scroller_scroll"},
+          {"scroll", static_cast<int>(m_lastScrollerScroll)}});
+  }
+  ImGui::EndChild();
+  ```
+- `src/UIManager.hpp` — add `float m_lastScrollerScroll = -1.0f;` member.
+
+---
+
+#### 5. Integration tests for event loop
+
+**Current state**: The 21 unit tests in `tests/test_ui_manager.cpp` cover UIManager's state
+management thoroughly (stack operations, message dispatch, navigation keys).  The event loop
+in `src/main.cpp` has no automated test coverage — all bugs during Phase 3 integration were
+found manually.
+
+**What needs to happen**: Write tests that exercise the event loop logic without requiring
+a running game.  The key behaviors to test:
+
+1. **ESC forwarding**: When logged in, pressing ESC sends `{"msg":"key","keycode":27}`
+   regardless of UI state.
+2. **Menu navigation**: Arrow keys are consumed locally when a menu with `ARROWS_SELECT`
+   is active.
+3. **Key forwarding**: When UI stack is non-empty, printable keys are forwarded as
+   `{"msg":"input",...}`.
+4. **Game input gating**: WASD keys are NOT forwarded when stack is empty (they generate
+   movement turns instead).
+5. **QuitConfirm isolation**: Mouse events reach ImGui during QuitConfirm; keyboard events
+   (except ESC) are blocked.
+
+**Approach**: Extract the event-handling logic from `main.cpp` into a testable function:
+```cpp
+// Returns: whether the event was consumed, and optionally a Turn or a JSON message to send.
+struct EventResult {
+    bool consumed;
+    std::optional<json> sendMessage;  // message to send to server
+    std::optional<std::string> turnType; // "move", "wait", "text", etc.
+};
+
+EventResult processGameEvent(const SDL_Event& event,
+                              const UIManager& uiManager,
+                              const WindowManager& wm,
+                              const InputModeTracker& inputMode);
+```
+
+**Files to create**:
+- `tests/test_event_loop.cpp` — test cases for the extracted function.
+- `src/EventLoop.hpp` / `src/EventLoop.cpp` — the extracted function.
+
+**Hint**: Start by pulling just the `scancodeToChar()` and the 8-step decision logic into
+a free function.  The existing `process_key()` in `main.cpp` is already separately testable
+(it takes an `SDL_KeyboardEvent` and returns an optional `Turn`).

@@ -2,6 +2,7 @@
 #include "DescriptionManager.hpp"
 #include "MessageQueue.hpp"
 #include "Turn.hpp"
+#include "UIManager.hpp"
 #include "WindowManager.hpp"
 #include "debug.hpp"
 #include "imgui.h"
@@ -131,91 +132,36 @@ void displayAllWindows(const Player& player, const GameMap& map,
     NetworkManager& networkManager, Renderer& renderer,
     const MessageLog& messageLog,
     const char* layoutFilename,
-    DescriptionManager* descManager)
+    DescriptionManager* descManager,
+    UIManager* uiManager)
 {
     WindowManager& wm = WindowManager::instance();
 
-    // Quit confirmation popup lifecycle.
-    // OpenPopup on entry, CloseCurrentPopup on exit, BeginPopupModal only while active.
-    {
-        static WindowManager::Mode s_lastMode = WindowManager::Mode::Normal;
-
-        // Entering QuitConfirm: open the popup
-        if (wm.getMode() == WindowManager::Mode::QuitConfirm
-            && s_lastMode != WindowManager::Mode::QuitConfirm) {
-            ImGui::OpenPopup("Quit Game?");
-        }
-
-        // Leaving QuitConfirm: close the popup (handles Escape closing it via ImGui)
-        if (s_lastMode == WindowManager::Mode::QuitConfirm
-            && wm.getMode() != WindowManager::Mode::QuitConfirm) {
-            ImGui::CloseCurrentPopup();
-        }
-
-        s_lastMode = wm.getMode();
+    // ── Server-driven UI stack (menus, overlays) ──────────────────
+    // Render before any legacy windows so popups appear on top.
+    if (uiManager) {
+        uiManager->render(player, networkManager, renderer.window(), *descManager);
     }
 
+    // Quit confirmation — rendered as a regular window while active.
     const bool inQuitConfirm = (wm.getMode() == WindowManager::Mode::QuitConfirm);
     if (inQuitConfirm) {
-        if (ImGui::BeginPopupModal("Quit Game?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::SetNextWindowSize(ImVec2(220, 90), ImGuiCond_Appearing);
+        ImGui::SetNextWindowPos(ImVec2(300, 250), ImGuiCond_Appearing);
+        if (ImGui::Begin("Quit Game?", nullptr,
+                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Are you sure you want to quit?");
             ImGui::Spacing();
             if (ImGui::Button("Yes, Quit", ImVec2(120, 0))) {
-                ImGui::CloseCurrentPopup();
                 wm.confirmQuit();
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-                ImGui::CloseCurrentPopup();
                 wm.cancelQuitConfirm(renderer.window());
             }
-            ImGui::EndPopup();
+            ImGui::End();
         }
         return; // block other windows
-    }
-
-    // Quaff menu popup lifecycle.
-    {
-        static WindowManager::Mode s_lastQuaffMode = WindowManager::Mode::Normal;
-
-        if (wm.getMode() == WindowManager::Mode::QuaffMenu
-            && s_lastQuaffMode != WindowManager::Mode::QuaffMenu) {
-            ImGui::OpenPopup("Quaff which potion?");
-        }
-        if (s_lastQuaffMode == WindowManager::Mode::QuaffMenu
-            && wm.getMode() != WindowManager::Mode::QuaffMenu) {
-            ImGui::CloseCurrentPopup();
-        }
-        s_lastQuaffMode = wm.getMode();
-    }
-
-    // Description window can appear on top of quaff menu — show it first.
-    if (descManager && descManager->hasDescription()) {
-        static bool s_descOpen = false;
-        if (!s_descOpen) {
-            ImGui::OpenPopup(descManager->itemName().c_str());
-            s_descOpen = true;
-        }
-        descriptionWindow(descManager->itemName(), descManager->description());
-        if (!ImGui::IsPopupOpen(descManager->itemName().c_str())) {
-            descManager->dismiss();
-            s_descOpen = false;
-        }
-        // Fall through to quaff menu — both popups can stack.
-    }
-
-    const bool inQuaffMenu = (wm.getMode() == WindowManager::Mode::QuaffMenu);
-    if (inQuaffMenu) {
-        quaffMenu(player);
-        return; // block other windows while quaff menu is open
-    }
-
-    // Character select takes priority during Login phase
-    if (const auto* choice = wm.getCharacterSelectData()) {
-        characterSelectWindow(*choice, networkManager);
-        // Still show network window for status
-        networkMenu(networkManager);
-        return;
     }
 
     const bool shouldReset = windowLayoutNeedsReset();
@@ -505,41 +451,6 @@ bool loadWindowLayout(const char* filename)
 
     spdlog::info("Window layout loaded from: {} ({} windows)", filename, g_savedLayout.size());
     return true;
-}
-
-void quaffMenu(const Player& player)
-{
-    if (ImGui::BeginPopupModal("Quaff which potion?", nullptr,
-            ImGuiWindowFlags_AlwaysAutoResize)) {
-
-        // Gather potions from inventory
-        struct PotionEntry {
-            int slot;
-            std::string name;
-        };
-        std::vector<PotionEntry> potions;
-        for (const auto& [slot, item] : player.data().inv) {
-            if (item.base_type == kBaseTypePotion) {
-                potions.push_back({ slot, item.name });
-            }
-        }
-
-        if (potions.empty()) {
-            ImGui::Text("You have no potions.");
-        } else {
-            ImGui::Text("Press a letter to quaff:");
-            ImGui::Spacing();
-            for (const auto& p : potions) {
-                char letter = static_cast<char>('a' + p.slot);
-                ImGui::Text("  %c — %s", letter, p.name.c_str());
-            }
-        }
-
-        ImGui::Spacing();
-        ImGui::Text("[letter to quaff]  [? + letter to describe]  [ESC to cancel]");
-
-        ImGui::EndPopup();
-    }
 }
 
 void descriptionWindow(const std::string& itemName,

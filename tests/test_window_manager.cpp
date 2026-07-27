@@ -267,14 +267,14 @@ TEST_CASE("WindowManager isGameConnected: true in Equipment mode", "[WindowManag
 // handleMessage tests
 // ============================================================
 
-TEST_CASE("WindowManager handleMessage: game_started transitions Login -> Overlay", "[WindowManager]")
+TEST_CASE("WindowManager handleMessage: game_started transitions Login -> Normal", "[WindowManager]")
 {
     WindowManager& wm = WindowManager::instance();
     wm.setMode(WindowManager::Mode::Login);
 
     wm.handleMessage(json::parse(R"({"msg":"game_started"})"));
 
-    REQUIRE(wm.getMode() == WindowManager::Mode::Overlay);
+    REQUIRE(wm.getMode() == WindowManager::Mode::Normal);
 
     resetToNormal();
 }
@@ -398,20 +398,16 @@ TEST_CASE("WindowManager handleMessage: login_success sets isLoggedIn", "[Window
     resetToNormal();
 }
 
-TEST_CASE("WindowManager map message clears character select data", "[WindowManager]")
+TEST_CASE("WindowManager map message no longer affects character select", "[WindowManager]")
 {
+    // UIManager now owns character select state; WindowManager no longer
+    // tracks it.  map messages are still handled but have no side effects
+    // on WindowManager's mode.
     WindowManager& wm = WindowManager::instance();
-    wm.setMode(WindowManager::Mode::Overlay);
+    wm.setMode(WindowManager::Mode::Normal);
 
-    NewgameChoice dummy;
-    dummy.phase = CharSelectPhase::Species;
-    dummy.isValid = true;
-    wm.setCharacterSelectData(dummy);
-    REQUIRE(wm.getCharacterSelectData() != nullptr);
-
-    // Map message clears char select data (character selection complete)
     wm.handleMessage(json::parse(R"({"msg":"map"})"));
-    REQUIRE(wm.getCharacterSelectData() == nullptr);
+    REQUIRE(wm.getMode() == WindowManager::Mode::Normal);
 
     resetToNormal();
 }

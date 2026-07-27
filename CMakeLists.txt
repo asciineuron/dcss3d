@@ -14,6 +14,9 @@ target_compile_features(dcss3d_obj PUBLIC cxx_std_23)
 target_sources(dcss3d_obj PRIVATE
 	src/MessageQueue.hpp
 	src/MessageQueue.cpp
+	src/UIManager.hpp
+	src/UIManager.cpp
+	src/UIManagerRender.cpp
 	src/Turn.hpp
 	src/Turn.cpp
 	src/GameMap.hpp
@@ -244,6 +247,8 @@ target_sources(dcss3d_tests PRIVATE
     tests/test_window_manager.cpp
     tests/test_character_select.cpp
     tests/test_sprite_manager.cpp
+    tests/test_ui_manager.cpp
+    src/UIManager.cpp
     src/InputModeTracker.cpp
     src/MessageLog.cpp
     src/WindowManager.cpp

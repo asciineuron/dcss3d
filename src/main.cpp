@@ -7,6 +7,7 @@
 #include "Renderer.hpp"
 #include "SpriteManager.hpp"
 #include "Turn.hpp"
+#include "UIManager.hpp"
 #include "WindowManager.hpp"
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -363,6 +364,7 @@ int main(int argc, char* argv[])
             std::format("{}resources/weapons_atlas.json", SDL_GetBasePath()));
 
         DescriptionManager descriptionManager;
+        UIManager uiManager;
 
         player.setAudioManager(&audioManager);
         ImGuiIO& io = ImGui::GetIO();
@@ -375,8 +377,19 @@ int main(int argc, char* argv[])
             { "game_ended", { audioManager } },
             { "game_started", { WindowManager::instance() } },
             { "login_success", { WindowManager::instance() } },
-            { "ui-push", { WindowManager::instance(), descriptionManager } },
-            { "ui-pop", { descriptionManager } },
+            { "menu", { uiManager } },
+            { "close_menu", { uiManager } },
+            { "close_all_menus", { uiManager } },
+            { "update_menu", { uiManager } },
+            { "update_menu_items", { uiManager } },
+            { "menu_scroll", { uiManager } },
+            { "title_prompt", { uiManager } },
+            { "ui-push", { descriptionManager, uiManager } },
+            { "ui-pop", { descriptionManager, uiManager } },
+            { "ui-state", { uiManager } },
+            { "ui-stack", { uiManager } },
+            { "ui-scroller-scroll", { uiManager } },
+            { "ui_cutoff", { uiManager } },
             { "input_mode", { inputModeTracker } }
         };
 
@@ -393,14 +406,36 @@ int main(int argc, char* argv[])
         // --- Effect tracking ---
         std::vector<SpriteHandle> activeEffects;
         int lastPlayerXl = 0;
-        bool quaffDescribePending = false; // '?' pressed, next letter describes
 
         uint64_t lastSpriteTick = SDL_GetTicks();
 
         while (!isDone && !WindowManager::instance().isQuitConfirmed()) {
             std::vector<json> responses = networkManager.getNewMessages();
             if (!responses.empty()) {
+                spdlog::debug("frame: got {} messages", responses.size());
                 processMessages(responseHandlers, responses);
+                spdlog::debug("frame: messages processed");
+            }
+
+            // Sync mouse mode BEFORE ImGui: use WindowManager's policy for
+            // when to use relative (gameplay) vs absolute (menus/overlay/login).
+            // When UIManager has entries on the stack, force absolute mode so
+            // menus are clickable.  Also flush accumulated relative motion when
+            // entering relative mode to prevent camera jump after closing menus.
+            {
+                SDL_Window* win = renderer.window();
+                bool wantRelative = WindowManager::instance().shouldUseRelativeMouse()
+                    && !uiManager.shouldBlockGameInput();
+                if (win) {
+                    SDL_SetWindowRelativeMouseMode(win, wantRelative);
+                    if (!wantRelative) {
+                        SDL_ShowCursor();
+                    }
+                }
+                // Flush accumulated motion to avoid camera jump.
+                if (wantRelative) {
+                    SDL_GetRelativeMouseState(nullptr, nullptr);
+                }
             }
 
             ImGui_ImplSDLGPU3_NewFrame();
@@ -409,19 +444,21 @@ int main(int argc, char* argv[])
 
             // Display all ImGui windows — layout management, pin gating, and content
             displayAllWindows(player, map, networkManager, renderer, messageLog,
-                              LAYOUT_FILENAME, &descriptionManager);
+                              LAYOUT_FILENAME, &descriptionManager, &uiManager);
 
-            // In Normal mode, pinned windows are read-only overlays.
-            // Clear any ImGui capture state so game input is not blocked —
-            // but only during gameplay mode.  During prompts (stat gain etc.)
-            // we keep ImGui capture so the user can scroll the log window.
+            // Clear ImGui capture state only during normal gameplay (no UI
+            // open, no menus, no overlay mode).  This lets WASD/mouse pass
+            // through to the game.  Keep capture active when UIManager has
+            // entries or when WindowManager is in a non-gameplay mode.
             if (WindowManager::instance().getMode() == WindowManager::Mode::Normal
+                && !uiManager.shouldBlockGameInput()
                 && inputModeTracker.isGameplayMode()) {
                 io.WantCaptureKeyboard = false;
                 io.WantCaptureMouse = false;
             }
 
             ImGui::Render();
+            spdlog::debug("frame: after ImGui::Render");
 
             // Compute target cell highlight position before rendering
             {
@@ -438,133 +475,101 @@ int main(int argc, char* argv[])
 
             renderer.doRender(map, player.camera(), { player.data().pos_x, player.data().pos_y },
                               &spriteManager);
+            spdlog::debug("frame: after doRender");
 
             // Process ALL input FIRST (keyboard + mouse) before updating position.
             // This ensures velocity changes are always detected, preventing infinite loops
             // when the player hits a wall and needs to release movement keys.
 
-            // Process keyboard events first
+            // Process keyboard events first — new server-driven architecture.
+            // Priority order matches the JS client's layered key handling.
             {
+                WindowManager& wm = WindowManager::instance();
                 SDL_Event event;
                 while (SDL_PollEvent(&event)) {
-                    // ── ESC handling (ordered by priority) ──
-
-                    // 1. Description showing → dismiss it, keep everything else
-                    if (event.type == SDL_EVENT_KEY_UP
-                        && event.key.scancode == SDL_SCANCODE_ESCAPE
-                        && descriptionManager.hasDescription()) {
-                        descriptionManager.dismiss();
-                        continue;
+                    // ── 1. Client-side modals (quit confirm) ────────
+                    if (wm.getMode() == WindowManager::Mode::QuitConfirm) {
+                        if (event.type == SDL_EVENT_KEY_UP) {
+                            if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+                                wm.cancelQuitConfirm(renderer.window());
+                            }
+                            continue; // block all keyboard input
+                        }
+                        // Let mouse events through to ImGui for button clicks
                     }
 
-                    // 2. Normal mode, logged in → send ESC to server (matching
-                    //    the JS client: server responds with ui-pop or mode change)
-                    if (event.type == SDL_EVENT_KEY_UP
+                    // ── 2. ESC → send to server (always when logged in) ──
+                    //      Matches JS client which sends on keydown.
+                    if (event.type == SDL_EVENT_KEY_DOWN
                         && event.key.scancode == SDL_SCANCODE_ESCAPE
-                        && !descriptionManager.hasDescription()
-                        && WindowManager::instance().getMode() == WindowManager::Mode::Normal
-                        && WindowManager::instance().isLoggedIn()) {
+                        && wm.isLoggedIn()) {
                         json escMsg = { { "msg", "key" }, { "keycode", 27 } };
                         networkManager.sendMessage(escMsg);
                         continue;
                     }
 
-                    // 3. Other modes (QuitConfirm, QuaffMenu, Equipment, Overlay)
-                    //    — handled by WindowManager.
-                    //    In Normal mode, handleKeyEvent returns false for ESC
-                    //    (already handled above), but still handles E, F1, etc.
-                    if (event.type == SDL_EVENT_KEY_UP
-                        && WindowManager::instance().handleKeyEvent(event.key.scancode, renderer.window())) {
+                    // ── 3. Menu active + navigation key → handle locally ──
+                    if (uiManager.isMenuActive()
+                        && (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)
+                        && uiManager.handleMenuNavigationKey(
+                            event.key.scancode,
+                            event.key.mod & SDL_KMOD_SHIFT)) {
                         continue;
                     }
 
-                    // Quit key (Shift+Q) — always handled regardless of mode
+                    // ── 4. Mode-toggle keys (F1 overlay, E equipment) ──
                     if (event.type == SDL_EVENT_KEY_UP
-                        && event.key.scancode == SDL_SCANCODE_Q
-                        && (event.key.mod & SDL_KMOD_SHIFT)) {
-                        WindowManager::instance().enterQuitConfirm(renderer.window());
+                        && wm.handleKeyEvent(event.key.scancode, renderer.window())) {
                         continue;
                     }
 
-                    // Quaff key (q) — open potion menu when in Normal mode.
-                    // Don't check isGameplayMode(): after a quaff the server
-                    // may send input_mode changes (e.g. MORE for --more--)
-                    // that would block subsequent quaffs.
-                    if (event.type == SDL_EVENT_KEY_UP
-                        && event.key.scancode == SDL_SCANCODE_Q
-                        && !(event.key.mod & SDL_KMOD_SHIFT)
-                        && WindowManager::instance().getMode() == WindowManager::Mode::Normal
-                        && WindowManager::instance().isLoggedIn()) {
-                        WindowManager::instance().enterQuaffMenu(renderer.window());
-                        quaffDescribePending = false;
+                    // ── 5. Ctrl+Q quit ────────────────────────────
+                    //      Client-side quit confirmation (doesn't conflict
+                    //      with DCSS gameplay keys).  Shift+Q is forwarded
+                    //      to the server as the quiver command.
+                    if (event.key.scancode == SDL_SCANCODE_Q
+                        && (event.key.mod & SDL_KMOD_CTRL)) {
+                        if (event.type == SDL_EVENT_KEY_UP) {
+                            wm.enterQuitConfirm(renderer.window());
+                        }
                         continue;
                     }
 
-                    // Quaff letter selection / describe — handle in event loop
-                    // to avoid one-frame IsKeyPressed delay.
-                    if (event.type == SDL_EVENT_KEY_UP
-                        && WindowManager::instance().getMode() == WindowManager::Mode::QuaffMenu) {
+                    // ── 6. Key forwarding to server ──────────────────
+                    //      Forward keys when UI stack has entries or
+                    //      server is in prompt/more/yesno mode.
+                    bool inForwardingMode = uiManager.shouldForwardKeysToServer()
+                                         || !inputModeTracker.isGameplayMode();
+                    if (inForwardingMode
+                        && event.type == SDL_EVENT_KEY_DOWN
+                        && wm.isLoggedIn()) {
                         char c = scancodeToChar(event.key.scancode, event.key.mod);
-
-                        // '?' key — enter describe mode (next letter describes)
-                        if (c == '?') {
-                            quaffDescribePending = true;
+                        if (c != '\0') {
+                            if (c == 27)      // ESC handled by step 2
+                                ;
+                            else if (c == 13) // Enter
+                                networkManager.sendMessage({{"msg","key"},{"keycode",13}});
+                            else if (c == 9)  // Tab
+                                networkManager.sendMessage({{"msg","key"},{"keycode",9}});
+                            else
+                                networkManager.sendMessage({{"msg","input"},{"text",std::string(1,c)}});
                             continue;
                         }
-
-                        if (c >= 'a' && c <= 'z') {
-                            int slot = c - 'a';
-                            auto it = player.data().inv.find(slot);
-                            if (it != player.data().inv.end()
-                                && it->second.base_type == kBaseTypePotion) {
-
-                                if (quaffDescribePending) {
-                                    // Describe the potion
-                                    quaffDescribePending = false;
-                                    descriptionManager.requestDescription(
-                                        networkManager, slot, it->second.name);
-                                    // Keep quaff menu open so they can quaff
-                                    // after reading the description.
-                                    spdlog::info("Describe: requested '{}'",
-                                        it->second.name);
-                                } else {
-                                    // Quaff the potion
-                                    json qMsg = { { "msg", "input" }, { "text", "q" } };
-                                    json letterMsg = { { "msg", "input" },
-                                        { "text", std::string(1, c) } };
-                                    networkManager.sendMessage(qMsg);
-                                    networkManager.sendMessage(letterMsg);
-
-                                    spdlog::info("Quaff: sent 'q' + '{}'", c);
-
-                                    // Trigger animation
-                                    SpriteTransform et;
-                                    et.posX = 0.0f;
-                                    et.posY = 0.15f;
-                                    et.scaleX = 0.5f;
-                                    et.scaleY = 0.5f;
-                                    SpriteHandle h = spriteManager.play(
-                                        "potion_quaff", SpriteSpace::Screen, et);
-                                    if (h != INVALID_SPRITE) {
-                                        activeEffects.push_back(h);
-                                    }
-
-                                    // Exit quaff menu
-                                    WindowManager::instance().cancelQuaffMenu(
-                                        renderer.window());
-                                }
-                            }
-                        }
-                        continue;
                     }
 
-                    // Game input processing: only when WindowManager allows it,
-                    // InputModeTracker says we're in gameplay mode, and ImGui
-                    // is not capturing input.
+                    // ── 7. Game input (WASD, mouse) ──────────────────
+                    //      Only when stack empty AND gameplay mode.
                     bool isGameplay = inputModeTracker.isGameplayMode();
-                    if (WindowManager::instance().shouldProcessGameInput()
-                        && isGameplay
-                        && !(io.WantCaptureMouse || io.WantCaptureKeyboard)) {
+                    bool canGameInput = !uiManager.shouldBlockGameInput()
+                                     && isGameplay
+                                     && wm.shouldProcessGameInput()
+                                     && !(io.WantCaptureMouse || io.WantCaptureKeyboard);
+                    // Track whether processInput consumed this event.
+                    // Movement keys (WASD, Space, Enter, <, >) are handled
+                    // even if they don't generate a turn, and must not
+                    // fall through to the forwarding step.
+                    bool gameInputHandled = false;
+                    if (canGameInput) {
                         std::unique_ptr<Turn> turn = processInput(event, renderer, player, isDone);
                         if (turn) {
                             spdlog::debug("generated turn: {}", turn->asMessage().dump());
@@ -572,39 +577,61 @@ int main(int argc, char* argv[])
                             networkManager.sendMessage(turn->asMessage());
                             break;
                         }
-                    }
-
-                    // Prompt mode (stat gain, --more--, yes/no): forward keyboard
-                    // input as text.  Matches JS client's handle_keypress during
-                    // non-gameplay input modes.
-                    if (WindowManager::instance().shouldProcessGameInput()
-                        && !isGameplay
-                        && !(io.WantCaptureMouse || io.WantCaptureKeyboard)
-                        && (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)) {
-                        SDL_KeyboardEvent& key = event.key;
-                        if (key.type == SDL_EVENT_KEY_DOWN) {
-                            char c = scancodeToChar(key.scancode, key.mod);
-                            if (c != '\0') {
-                                std::unique_ptr<Turn> turn = std::make_unique<TextTurn>(std::string(1, c));
-                                spdlog::debug("prompt mode input: '{}' (0x{:02x})", c, (unsigned char)c);
-                                networkManager.sendMessage(turn->asMessage());
+                        // Mark game keys as handled even when they only
+                        // set velocity (WASD up/down, shift+, shift+.).
+                        if (event.type == SDL_EVENT_KEY_DOWN
+                            || event.type == SDL_EVENT_KEY_UP) {
+                            switch (event.key.scancode) {
+                            case SDL_SCANCODE_W: case SDL_SCANCODE_A:
+                            case SDL_SCANCODE_S: case SDL_SCANCODE_D:
+                            case SDL_SCANCODE_SPACE:
+                            case SDL_SCANCODE_RETURN:
+                            case SDL_SCANCODE_PERIOD:
+                            case SDL_SCANCODE_COMMA:
+                            case SDL_SCANCODE_KP_GREATER:
+                            case SDL_SCANCODE_KP_LESS:
+                                gameInputHandled = true;
                                 break;
+                            default: break;
                             }
                         }
                     }
 
-                    // ── ImGui: only events not consumed by handlers above ──
-                    if (WindowManager::instance().shouldRenderUI()) {
+                    // ── 7.5 Fallback key forwarding ─────────────────
+                    //      Forward unhandled keys (q, i, d, r, p, etc.)
+                    //      to the server.  Skips keys consumed by step 7.
+                    if (!gameInputHandled
+                        && wm.isLoggedIn()
+                        && wm.getMode() == WindowManager::Mode::Normal
+                        && event.type == SDL_EVENT_KEY_DOWN) {
+                        char c = scancodeToChar(event.key.scancode, event.key.mod);
+                        if (c != '\0') {
+                            if (c == 27 || c == 13 || c == ' ') {
+                                // already handled by steps above
+                            } else {
+                                networkManager.sendMessage(
+                                    {{"msg","input"},{"text",std::string(1,c)}});
+                                spdlog::debug("forwarded key '{}' to server", c);
+                            }
+                            continue;
+                        }
+                    }
+
+                    // ── 8. ImGui processing (always last) ────────────
+                    //      Always process events when UIManager has UI
+                    //      open (menus need clicks/drags), or when the
+                    //      overlay/equipment mode is active.
+                    if (wm.shouldRenderUI() || uiManager.shouldBlockGameInput()) {
                         ImGui_ImplSDL3_ProcessEvent(&event);
                     }
                 }
             }
 
             // Process mouse input separately from SDL_PollEvent to reduce overhead.
-            // When UI is showing (Overlay/Equipment mode), mouse never controls camera.
-            // When UI is hidden (Normal mode, even with pinned overlay windows visible),
-            // mouse always controls camera — pinned windows are read-only.
-            if (WindowManager::instance().shouldProcessGameInput()
+            // Mouse only controls camera when the UI stack is empty and we're in
+            // gameplay mode.  When menus or overlays are showing, mouse is for UI.
+            if (!uiManager.shouldBlockGameInput()
+                && WindowManager::instance().shouldProcessGameInput()
                 && inputModeTracker.isGameplayMode()) {
                 std::unique_ptr<Turn> turn = processMouseInput(player);
                 if (turn) {
@@ -626,10 +653,12 @@ int main(int argc, char* argv[])
                 }
             }
 
-            // NOW update position and generate turn (after input is processed)
-            // Only process game state updates in Normal mode, and only when
-            // the server is in gameplay input mode.
-            if (WindowManager::instance().shouldProcessGameInput()
+            spdlog::debug("frame: after mouse input");
+
+            // NOW update position and generate turn (after input is processed).
+            // Only advance when no UI is blocking and the server expects gameplay.
+            if (!uiManager.shouldBlockGameInput()
+                && WindowManager::instance().shouldProcessGameInput()
                 && inputModeTracker.isGameplayMode()) {
                 gameTime.update();
 
@@ -717,6 +746,8 @@ int main(int argc, char* argv[])
                 }
             }
             lastPlayerXl = player.data().xl;
+
+            spdlog::debug("frame: after position update");
 
             // --- Sprite system update (use own frame timer, not gameTime) ---
             {
